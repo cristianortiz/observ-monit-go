@@ -242,7 +242,7 @@ github.com/go-playground/validator/v10
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.24+
 - Docker & Docker Compose
 - PostgreSQL (or use Docker Compose)
 
