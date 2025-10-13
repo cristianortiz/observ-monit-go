@@ -29,9 +29,417 @@ This is a simple e-commerce system designed as a learning platform for mastering
 
 Numerical data aggregated over time that provide quantitative insights into system behavior.
 
+##### What are Metrics?
+
+Metrics are **time-series data points** that measure specific aspects of a system. Each metric consists of:
+- **Name**: Identifier for the metric (e.g., `http_requests_total`)
+- **Value**: Numerical measurement
+- **Timestamp**: When the measurement was taken
+- **Labels**: Key-value pairs for filtering and grouping (e.g., `method="GET"`, `status="200"`)
+
+##### Prometheus Metric Types
+
+Prometheus supports four fundamental metric types:
+
+###### 1. **Counter** 📈 (Only Goes Up)
+
+A cumulative metric that **only increases** or resets to zero on restart.
+
+**Characteristics:**
+- Starts at 0 when the service starts
+- Only increments, never decrements
+- Resets to 0 on service restart
+- Used to track totals over time
+
+**Use Cases:**
+- Total number of HTTP requests
+- Total number of errors
+- Total bytes processed
+- Total items sold
+
+**Example:**
+```go
+httpRequestsTotal.Inc() // Increment by 1
+
+// With labels
+httpRequestsTotal.WithLabelValues("users-service", "GET", "/api/users", "200").Inc()
+```
+
+**Prometheus Query Examples:**
+```promql
+# Total requests in the last hour
+http_requests_total[1h]
+
+# Rate of requests per second
+rate(http_requests_total[5m])
+
+# Total errors in the last hour
+rate(http_requests_total{status=~"5.."}[1h])
+```
+
+**Real-world Example:**
+```
+Time     Value    Meaning
+10:00    0        Service started
+10:01    150      150 requests processed
+10:02    325      175 new requests (325 - 150)
+10:03    500      175 new requests (500 - 325)
+```
+
+###### 2. **Gauge** 🌡️ (Goes Up and Down)
+
+A metric that represents a **single value that can go up or down**.
+
+**Characteristics:**
+- Can increase or decrease
+- Represents a snapshot of a current state
+- No automatic reset on restart
+- Used for values that fluctuate
+
+**Use Cases:**
+- Current memory usage
+- Active connections
+- Queue size
+- Current temperature
+- Number of items in cache
+- Goroutines count
+
+**Example:**
+```go
+activeConnections.Inc()    // Increment by 1
+activeConnections.Dec()    // Decrement by 1
+activeConnections.Set(42)  // Set to specific value
+activeConnections.Add(5)   // Add 5
+activeConnections.Sub(3)   // Subtract 3
+```
+
+**Prometheus Query Examples:**
+```promql
+# Current active connections
+http_active_connections
+
+# Average connections over 5 minutes
+avg_over_time(http_active_connections[5m])
+
+# Maximum connections in the last hour
+max_over_time(http_active_connections[1h])
+```
+
+**Real-world Example:**
+```
+Time     Value    Meaning
+10:00    5        5 active connections
+10:01    10       5 new connections opened (went up)
+10:02    3        7 connections closed (went down)
+10:03    15       12 new connections opened (went up)
+```
+
+**Important Note:** Gauges don't have "zones" (like red/yellow/green) built-in. You define alert thresholds in Alertmanager or visualize them in Grafana:
+
+```yaml
+# Alertmanager rule
+- alert: HighConnectionCount
+  expr: http_active_connections > 100
+  for: 5m
+  annotations:
+    summary: "High connection count detected"
+```
+
+###### 3. **Histogram** 📊 (Distribution with Buckets)
+
+A metric that **samples observations** and counts them in configurable buckets, allowing calculation of quantiles.
+
+**Characteristics:**
+- Groups values into predefined buckets (ranges)
+- Automatically calculates sum and count
+- Enables percentile calculation (p50, p95, p99)
+- Server-side (Prometheus) calculates quantiles
+- More flexible than Summary for aggregation
+
+**Use Cases:**
+- Request latency/duration
+- Response size distribution
+- Processing time
+- Query execution time
+
+**What are Buckets?**
+
+Buckets are **predefined ranges** where Prometheus groups measurements. Think of them as "bins" that count how many observations fall into each range.
+
+**Default Buckets (`prometheus.DefBuckets`):**
+```go
+[]float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
+```
+
+**Translated to milliseconds:**
+- `0.005s` = 5ms
+- `0.01s` = 10ms
+- `0.025s` = 25ms
+- `0.05s` = 50ms
+- `0.1s` = 100ms
+- `0.25s` = 250ms
+- `0.5s` = 500ms
+- `1s` = 1 second
+- `2.5s` = 2.5 seconds
+- `5s` = 5 seconds
+- `10s` = 10 seconds
+
+**How Buckets Work - Practical Example:**
+
+Imagine you receive these request latencies:
+```
+Request 1: 0.003s (3ms)
+Request 2: 0.020s (20ms)
+Request 3: 0.150s (150ms)
+Request 4: 0.600s (600ms)
+Request 5: 1.200s (1.2s)
+```
+
+**Prometheus groups them into cumulative buckets:**
+```
+≤ 0.005s (≤5ms):    1 request   [Request 1: 3ms]
+≤ 0.01s (≤10ms):    1 request   [same as above]
+≤ 0.025s (≤25ms):   2 requests  [Request 1, 2]
+≤ 0.05s (≤50ms):    2 requests  [same as above]
+≤ 0.1s (≤100ms):    2 requests  [same as above]
+≤ 0.25s (≤250ms):   3 requests  [Request 1, 2, 3]
+≤ 0.5s (≤500ms):    3 requests  [same as above]
+≤ 1s (≤1s):         3 requests  [same as above]
+≤ 2.5s (≤2.5s):     5 requests  [Request 1, 2, 3, 4, 5]
+≤ 5s (≤5s):         5 requests  [same as above]
+≤ 10s (≤10s):       5 requests  [same as above]
+≤ +Inf:             5 requests  [all requests]
+```
+
+**What Prometheus Actually Records:**
+```
+http_request_duration_seconds_bucket{le="0.005"} 1
+http_request_duration_seconds_bucket{le="0.01"} 1
+http_request_duration_seconds_bucket{le="0.025"} 2
+http_request_duration_seconds_bucket{le="0.25"} 3
+http_request_duration_seconds_bucket{le="2.5"} 5
+http_request_duration_seconds_bucket{le="+Inf"} 5
+http_request_duration_seconds_sum 2.973      ← Sum of all durations
+http_request_duration_seconds_count 5        ← Total observations
+```
+
+**Example:**
+```go
+// Record a request duration
+requestDuration.Observe(0.150) // 150ms
+
+// With labels
+httpRequestDuration.WithLabelValues("users-service", "GET", "/api/users", "200").Observe(0.150)
+```
+
+**Prometheus Query Examples:**
+```promql
+# Calculate 95th percentile (p95) - 95% of requests are faster than this
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Calculate 50th percentile (median) - half of requests are faster
+histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))
+
+# Calculate 99th percentile (p99) - 99% of requests are faster
+histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))
+
+# Average request duration
+rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])
+```
+
+**Custom Buckets for Different Use Cases:**
+
+```go
+// For very fast APIs (microseconds to milliseconds)
+Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1}
+
+// For slow background processes (seconds to minutes)
+Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 600}
+
+// For file uploads (exponential growth)
+Buckets: prometheus.ExponentialBuckets(1, 2, 10) // 1, 2, 4, 8, 16, 32, 64, 128, 256, 512 MB
+
+// For specific SLA requirements (e.g., p95 < 200ms)
+Buckets: []float64{0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 5}
+```
+
+###### 4. **Summary** 📋 (Pre-calculated Quantiles)
+
+Similar to Histogram but calculates **quantiles on the client side** (within the application).
+
+**Characteristics:**
+- Calculates quantiles in the application
+- Cannot aggregate across multiple instances
+- Lower server load (pre-calculated)
+- Less flexible than Histogram
+- Good for single-instance services
+
+**Use Cases:**
+- Request/Response size
+- Processing time (when you don't need aggregation)
+- Single-instance metrics
+
+**Histogram vs Summary:**
+
+| Feature | Histogram | Summary |
+|---------|-----------|---------|
+| Quantile Calculation | Server (Prometheus) | Client (Application) |
+| Aggregation | ✅ Yes (across instances) | ❌ No |
+| Flexibility | ✅ High | ⚠️ Limited |
+| Server Load | Higher | Lower |
+| Bucket Configuration | Required | Not needed |
+| Use When | Multiple instances | Single instance |
+
+**Example:**
+```go
+// Record response size
+httpResponseSize.Observe(5000) // 5KB response
+
+// With labels
+httpResponseSize.WithLabelValues("users-service", "GET", "/api/users").Observe(5000)
+```
+
+**What Summary Records:**
+```
+http_response_size_bytes_sum 500000      ← Total bytes sent
+http_response_size_bytes_count 100       ← Number of responses
+```
+
+**Calculate Average:**
+```
+Average = 500000 / 100 = 5000 bytes per response
+```
+
+**Prometheus Query Examples:**
+```promql
+# Average response size
+rate(http_response_size_bytes_sum[5m]) / rate(http_response_size_bytes_count[5m])
+
+# Total bytes sent per second
+rate(http_response_size_bytes_sum[5m])
+```
+
+##### Metrics Comparison Table
+
+| Type | Direction | Resets on Restart | Aggregatable | Best For |
+|------|-----------|-------------------|--------------|----------|
+| **Counter** | ↑ Only Up | ✅ Yes (to 0) | ✅ Yes | Totals, rates |
+| **Gauge** | ↑↓ Up/Down | ❌ No | ⚠️ Limited | Current values |
+| **Histogram** | ↑ Only Up | ✅ Yes (to 0) | ✅ Yes | Latencies, sizes |
+| **Summary** | ↑ Only Up | ✅ Yes (to 0) | ❌ No | Single instance |
+
+##### Golden Signals Implementation
+
+Based on Google's SRE principles, four critical metrics should be tracked:
+
+**1. Latency** (How long requests take)
+```go
+// Histogram for request duration
+httpRequestDuration := prometheus.NewHistogramVec(
+    prometheus.HistogramOpts{
+        Name: "http_request_duration_seconds",
+        Help: "HTTP request duration in seconds",
+        Buckets: prometheus.DefBuckets,
+    },
+    []string{"service", "method", "path", "status"},
+)
+```
+
+**2. Traffic** (How many requests)
+```go
+// Counter for total requests
+httpRequestsTotal := prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: "http_requests_total",
+        Help: "Total number of HTTP requests",
+    },
+    []string{"service", "method", "path", "status"},
+)
+```
+
+**3. Errors** (How many requests fail)
+```go
+// Counter filtered by error status codes
+// Query: rate(http_requests_total{status=~"5.."}[5m])
+```
+
+**4. Saturation** (How "full" the system is)
+```go
+// Gauge for active connections
+activeConnections := prometheus.NewGauge(
+    prometheus.GaugeOpts{
+        Name: "http_active_connections",
+        Help: "Number of active HTTP connections",
+    },
+)
+```
+
+##### Practical Metrics Usage
+
+**Request Lifecycle with Metrics:**
+```go
+// 1. Request arrives
+activeConnections.Inc()                    // Gauge: +1 connection
+httpRequestsTotal.Inc()                    // Counter: +1 total request
+
+// 2. Process request
+start := time.Now()
+// ... handle request ...
+duration := time.Since(start).Seconds()
+
+// 3. Record metrics
+httpRequestDuration.Observe(duration)      // Histogram: record latency
+httpResponseSize.Observe(float64(size))    // Summary: record size
+
+// 4. Request completes
+activeConnections.Dec()                    // Gauge: -1 connection
+```
+
+**Querying Metrics in Grafana:**
+```promql
+# Request rate (requests per second)
+rate(http_requests_total[5m])
+
+# Error rate percentage
+rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100
+
+# p95 latency (95% of requests faster than this)
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Average response size
+rate(http_response_size_bytes_sum[5m]) / rate(http_response_size_bytes_count[5m])
+
+# Current active connections
+http_active_connections
+```
+
+**Alerting Examples:**
+```yaml
+# High error rate
+- alert: HighErrorRate
+  expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+  for: 5m
+  annotations:
+    summary: "Error rate above 5%"
+
+# High latency
+- alert: HighLatency
+  expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+  for: 5m
+  annotations:
+    summary: "p95 latency above 1 second"
+
+# Too many connections
+- alert: HighConnections
+  expr: http_active_connections > 1000
+  for: 5m
+  annotations:
+    summary: "Active connections above 1000"
+```
+
 - **Types**: CPU usage, memory consumption, request latency, throughput, error rates
-- **Tools**: Prometheus, Grafana
-- **Use Cases**: Alerting, capacity planning, performance trending
+- **Tools**: Prometheus (collection), Grafana (visualization)
+- **Use Cases**: Alerting, capacity planning, performance trending, SLO tracking
 
 #### 2. 📝 Logs
 
@@ -39,37 +447,43 @@ Discrete event records that provide detailed information about system activities
 
 - **Types**: Structured (JSON) vs unstructured text logs
 - **Levels**: DEBUG, INFO, WARN, ERROR, FATAL
-- **Tools**: ELK Stack, Fluentd, Loki
-- **Use Cases**: Debugging, audit trails, security analysis
+- **Tools**: Zap (structured logging), Loki (aggregation), Grafana (visualization)
+- **Use Cases**: Debugging, audit trails, security analysis, error investigation
 
 #### 3. 🔗 Traces
 
 Distributed request tracking that shows the journey of a request across multiple services.
 
-- **Components**: Spans, trace context, baggage
-- **Standards**: OpenTelemetry, OpenTracing
-- **Tools**: Jaeger, Zipkin
-- **Use Cases**: Performance optimization, dependency mapping, error root cause analysis
+- **Components**: Spans (units of work), trace context (correlation IDs), baggage (metadata)
+- **Standards**: OpenTelemetry (unified standard), OpenTracing (legacy)
+- **Tools**: Jaeger (tracing backend), Zipkin (alternative)
+- **Use Cases**: Performance optimization, dependency mapping, error root cause analysis, latency debugging
 
 ### Observability Methodologies
 
 #### Golden Signals (Google SRE)
 
-1. **Latency**: Response time of requests
-2. **Traffic**: Demand on the system (requests per second)
-3. **Errors**: Rate of failed requests
-4. **Saturation**: How "full" the service is (resource utilization)
+The four metrics that should be measured for every user-facing system:
+
+1. **Latency**: Response time of requests (measured with Histogram)
+2. **Traffic**: Demand on the system - requests per second (measured with Counter + rate())
+3. **Errors**: Rate of failed requests (measured with Counter filtered by status)
+4. **Saturation**: How "full" the service is - resource utilization (measured with Gauge)
 
 #### RED Method (Request-oriented services)
 
+Focused on user-facing services:
+
 - **Rate**: Requests per second
-- **Errors**: Error rate percentage
-- **Duration**: Response time distribution
+- **Errors**: Error rate percentage  
+- **Duration**: Response time distribution (p50, p95, p99)
 
 #### USE Method (Resource-oriented)
 
+Focused on infrastructure and resource monitoring:
+
 - **Utilization**: Percentage of time the resource is busy
-- **Saturation**: Amount of work queued
+- **Saturation**: Amount of work queued (waiting)
 - **Errors**: Error count for the resource
 
 ## 🏗️ Architecture Overview
