@@ -376,26 +376,127 @@ activeConnections := prometheus.NewGauge(
 
 ##### Practical Metrics Usage
 
-**Request Lifecycle with Metrics:**
-```go
-// 1. Request arrives
-activeConnections.Inc()                    // Gauge: +1 connection
-httpRequestsTotal.Inc()                    // Counter: +1 total request
+**Complete Request Flow:**
 
-// 2. Process request
-start := time.Now()
-// ... handle request ...
-duration := time.Since(start).Seconds()
-
-// 3. Record metrics
-httpRequestDuration.Observe(duration)      // Histogram: record latency
-httpResponseSize.Observe(float64(size))    // Summary: record size
-
-// 4. Request completes
-activeConnections.Dec()                    // Gauge: -1 connection
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ 1. Normal HTTP Request (e.g., GET /api/users/123)              │
+└────────────────────────┬────────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 2. Metrics Middleware Captures Data                            │
+│                                                                  │
+│    BEFORE c.Next():                                            │
+│    - activeConnections.Inc()        → Gauge: 5 → 6            │
+│    - start := time.Now()                                       │
+│    - path := c.Route().Path         → "/api/users/:id"        │
+│                                                                  │
+│    c.Next() → Your handler runs                                │
+│                                                                  │
+│    AFTER c.Next():                                             │
+│    - duration := time.Since(start)  → 0.125s                  │
+│    - httpRequestsTotal.Inc()        → Counter: 1547 → 1548    │
+│    - httpRequestDuration.Observe()  → Histogram: +1 sample    │
+│    - httpRequestSize.Observe()      → Summary: 150 bytes      │
+│    - httpResponseSize.Observe()     → Summary: 5000 bytes     │
+│    - activeConnections.Dec()        → Gauge: 6 → 5            │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Querying Metrics in Grafana:**
+**How Prometheus Collects These Metrics:**
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Your Go Application                                           │
+│                                                               │
+│  User Requests  →  Middleware  →  Metrics Registry          │
+│  (Business)         (Captures)     (Stores in memory)        │
+│                                                               │
+│                                    ↓                          │
+│                           /metrics Endpoint                   │
+│                           (Exposes as text)                   │
+└────────────────────────────────┬─────────────────────────────┘
+                                 │
+                                 │ GET /metrics
+                                 │ every 15 seconds
+                                 │
+                 ┌───────────────▼──────────────┐
+                 │                              │
+                 │    Prometheus Server         │
+                 │                              │
+                 │  • Scrapes (pulls) metrics   │
+                 │  • Stores time-series data   │
+                 │  • Enables PromQL queries    │
+                 │                              │
+                 └───────────────┬──────────────┘
+                                 │
+                                 │ Data source
+                                 │
+                 ┌───────────────▼──────────────┐
+                 │                              │
+                 │         Grafana              │
+                 │                              │
+                 │  • Visualizes dashboards     │
+                 │  • Creates alerts            │
+                 │                              │
+                 └──────────────────────────────┘
+```
+
+**What `/metrics` Endpoint Returns:**
+
+When Prometheus scrapes `GET http://localhost:3000/metrics`, it receives plain text:
+
+```
+# HELP http_requests_total Total number of HTTP requests
+# TYPE http_requests_total counter
+http_requests_total{method="GET",path="/api/users/:id",service="users-service",status="200"} 1547
+http_requests_total{method="POST",path="/api/users",service="users-service",status="201"} 256
+
+# HELP http_request_duration_seconds HTTP request duration in seconds
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="GET",path="/api/users/:id",status="200",le="0.005"} 234
+http_request_duration_seconds_bucket{method="GET",path="/api/users/:id",status="200",le="0.01"} 987
+http_request_duration_seconds_bucket{method="GET",path="/api/users/:id",status="200",le="0.025"} 2150
+http_request_duration_seconds_bucket{method="GET",path="/api/users/:id",status="200",le="+Inf"} 3421
+http_request_duration_seconds_sum{method="GET",path="/api/users/:id",status="200"} 245.67
+http_request_duration_seconds_count{method="GET",path="/api/users/:id",status="200"} 3421
+
+# HELP http_active_connections Number of active HTTP connections
+# TYPE http_active_connections gauge
+http_active_connections 5
+```
+
+**Understanding the Format:**
+
+```
+metric_name{label1="value1",label2="value2"} numerical_value
+
+Example:
+http_requests_total{method="GET",path="/api/users/:id",status="200"} 1547
+│                   │                                            │
+│                   └── Labels (for filtering)                  └── The actual value
+└── Metric name
+```
+
+**Why c.Route().Path Instead of c.Path()?**
+
+```go
+// ❌ BAD: c.Path() creates too many unique metrics (high cardinality)
+// Requests: /api/users/1, /api/users/2, /api/users/3...
+http_requests_total{path="/api/users/1"} 1
+http_requests_total{path="/api/users/2"} 1
+http_requests_total{path="/api/users/3"} 1
+// Result: Thousands of time series = Memory explosion 💥
+
+// ✅ GOOD: c.Route().Path groups by route template (low cardinality)
+// All requests to /api/users/:id
+http_requests_total{path="/api/users/:id"} 1000
+// Result: Single time series = Efficient ✨
+```
+
+**Basic PromQL Queries:**
+
 ```promql
 # Request rate (requests per second)
 rate(http_requests_total[5m])
@@ -403,43 +504,14 @@ rate(http_requests_total[5m])
 # Error rate percentage
 rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) * 100
 
-# p95 latency (95% of requests faster than this)
+# 95th percentile latency (95% of requests are faster than this)
 histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
-
-# Average response size
-rate(http_response_size_bytes_sum[5m]) / rate(http_response_size_bytes_count[5m])
 
 # Current active connections
 http_active_connections
 ```
 
-**Alerting Examples:**
-```yaml
-# High error rate
-- alert: HighErrorRate
-  expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
-  for: 5m
-  annotations:
-    summary: "Error rate above 5%"
-
-# High latency
-- alert: HighLatency
-  expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
-  for: 5m
-  annotations:
-    summary: "p95 latency above 1 second"
-
-# Too many connections
-- alert: HighConnections
-  expr: http_active_connections > 1000
-  for: 5m
-  annotations:
-    summary: "Active connections above 1000"
-```
-
-- **Types**: CPU usage, memory consumption, request latency, throughput, error rates
-- **Tools**: Prometheus (collection), Grafana (visualization)
-- **Use Cases**: Alerting, capacity planning, performance trending, SLO tracking
+<!-- ...existing code continues... -->
 
 #### 2. 📝 Logs
 
