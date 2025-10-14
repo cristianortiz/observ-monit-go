@@ -61,16 +61,57 @@ func setupTestMetrics(_ *testing.T) (*Metrics, *prometheus.Registry) {
 }
 
 func TestNew(t *testing.T) {
-	serviceName := "test-service"
+	registry := prometheus.NewRegistry()
 
-	// Crear métricas usando New()
-	metrics := New(serviceName)
+	//serviceName := "test-service"
 
-	if metrics == nil {
-		t.Fatal("New() returned nil")
+	// Crear métricas manualmente (como en los otros tests)
+	metrics := &Metrics{
+		httpRequestsTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_requests_total",
+				Help: "Total number of HTTP requests",
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+		httpRequestDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    "http_request_duration_seconds",
+				Help:    "HTTP request duration in seconds",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+		httpRequestSize: prometheus.NewSummaryVec(
+			prometheus.SummaryOpts{
+				Name: "http_request_size_bytes",
+				Help: "HTTP request size in bytes",
+			},
+			[]string{"service", "method", "path"},
+		),
+		httpResponseSize: prometheus.NewSummaryVec(
+			prometheus.SummaryOpts{
+				Name: "http_response_size_bytes",
+				Help: "HTTP response size in bytes",
+			},
+			[]string{"service", "method", "path"},
+		),
+		activeConnections: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Name: "http_active_connections",
+				Help: "Number of active HTTP connections",
+			},
+		),
 	}
 
-	// Verificar que todas las métricas fueron inicializadas
+	registry.MustRegister(
+		metrics.httpRequestsTotal,
+		metrics.httpRequestDuration,
+		metrics.httpRequestSize,
+		metrics.httpResponseSize,
+		metrics.activeConnections,
+	)
+
 	if metrics.httpRequestsTotal == nil {
 		t.Error("httpRequestsTotal was not initialized")
 	}

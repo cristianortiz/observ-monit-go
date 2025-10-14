@@ -24,10 +24,17 @@ func Middleware(config MetricsConfig) fiber.Handler {
 		err := c.Next()
 
 		//5. captures info after the handler
-		// IMPORTANT: Make defensive copies of strings to avoid Fiber's internal pooling issues
-		// Fiber reuses byte slices which can cause corruption when strings point to them
+		// IMPORTANT: Use c.Route().Path instead of c.Path() for better cardinality
+		// c.Route().Path gives the route template (e.g., "/api/users/:id")
+		// instead of the actual path (e.g., "/api/users/123")
 		method := string([]byte(c.Method()))
-		path := string([]byte(c.Path()))
+
+		// Get route path, fallback to actual path if route is not found (404 cases)
+		path := c.Route().Path
+		if path == "" {
+			path = c.Path()
+		}
+
 		duration := time.Since(start).Seconds()
 		status := strconv.Itoa(c.Response().StatusCode())
 
