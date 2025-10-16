@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Config holds all configuration for our application
@@ -30,6 +31,12 @@ type DatabaseConfig struct {
 	Password string
 	Name     string
 	SSLMode  string
+	//pool related
+	MaxConns            int32
+	MinConns            int32
+	MaxConnLifetime     time.Duration
+	MaxConnIdleTime     time.Duration
+	HealthCheckInterval time.Duration
 }
 
 type ObservabilityConfig struct {
@@ -56,12 +63,17 @@ func Load(serviceName string) (*Config, error) {
 			Port: getEnvInt("SERVICE_PORT", 8080),
 		},
 		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnvInt("DB_PORT", 5432),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "postgres"),
-			Name:     getEnv("DB_NAME", "observ-db"),
-			SSLMode:  getEnv("DB_SSL_MODE", "disable"),
+			Host:                getEnv("DB_HOST", "localhost"),
+			Port:                getEnvInt("DB_PORT", 5432),
+			User:                getEnv("DB_USER", "postgres"),
+			Password:            getEnv("DB_PASSWORD", "postgres"),
+			Name:                getEnv("DB_NAME", "observ-db"),
+			SSLMode:             getEnv("DB_SSL_MODE", "disable"),
+			MaxConns:            int32(getEnvInt("DB_MAX_CONNS", 25)),
+			MinConns:            int32(getEnvInt("DB_MIN_CONNS", 5)),
+			MaxConnLifetime:     getEnvDuration("DB_MAX_CONN_LIFETIME", 1*time.Hour),
+			MaxConnIdleTime:     getEnvDuration("DB_MAX_CONN_IDLE_TIME", 30*time.Minute),
+			HealthCheckInterval: getEnvDuration("DB_HEALTH_CHECK_INTERVAL", 1*time.Minute),
 		},
 		Observability: ObservabilityConfig{
 			LogLevel:    getEnv("LOG_LEVEL", "info"),
@@ -146,4 +158,13 @@ func (c *Config) IsDevelopment() bool {
 
 func (c *Config) IsProduction() bool {
 	return c.Environment == "production"
+}
+
+func getEnvDuration(key string, defaultValue time.Duration) time.Duration {
+	if value := os.Getenv(key); value != "" {
+		if duration, err := time.ParseDuration(value); err == nil {
+			return duration
+		}
+	}
+	return defaultValue
 }
