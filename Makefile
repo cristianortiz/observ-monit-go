@@ -7,7 +7,11 @@ help: ## Show help
 # Development
 .PHONY: run
 run: ## Run the application
-	go run cmd/users-service/main.go
+	go run cmd/factorit/main.go
+
+.PHONY: build
+build: ## Build Factorit binary
+	go build -o bin/factorit cmd/factorit/main.go
 
 # Testing
 .PHONY: test
