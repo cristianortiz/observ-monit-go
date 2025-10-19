@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: observ-postgres
+    container_name: factorit-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres

@@ -1,1 +1,4 @@
 /PROJECT_PLAN.md
+bin/
+*.out
+docs/
