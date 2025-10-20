@@ -1,6 +1,6 @@
-# 🔍 E-Commerce Observability Platform
+# 🔍 Modular Monotlith in Golang with Observabilty 
 
-A comprehensive microservices project built with Go, focused on implementing enterprise-grade **Observability** and **Monitoring** patterns. This project prioritizes observability implementation over complex business logic, making it perfect for learning distributed systems monitoring.
+A comprehensive microservices project built with Go, focused on implementing enterprise-grade **Observability** and **Monitoring** patterns. This project prioritizes observability implementation over complex business logic, making it perfect for learning distributed systems monitoring. Also the project implements clean / hexagonal arquitecture style
 
 ## 🎯 Project Overview
 
