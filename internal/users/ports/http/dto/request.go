@@ -21,22 +21,15 @@ type LoginRequestDto struct {
 	Password string `json:"password" validate:"required"`
 }
 
-type ListUsersQuery struct {
-	Page     int    `query:"page" validate:"min=1"`
-	PageSize int    `query:"page_size" validate:"min=1,max=100"`
-	SortBy   string `query:"sort_by" validate:"omitempty,oneof=name email created_at"`
-	Order    string `query:"order" validate:"omitempty,oneof=asc desc"`
+type ListUsersQueryDto struct {
+	Limit  int    `query:"limit" validate:"omitempty,min=1,max=100"`
+	Offset int    `query:"offset" validate:"omitempty,min=0"`
+	Order  string `query:"order" validate:"omitempty,oneof=asc desc"`
 }
 
-func (q *ListUsersQuery) SetDefaults() {
-	if q.Page == 0 {
-		q.Page = 1
-	}
-	if q.PageSize == 0 {
-		q.PageSize = 20
-	}
-	if q.SortBy == "" {
-		q.SortBy = "created_at"
+func (q *ListUsersQueryDto) SetDefaults() {
+	if q.Limit == 0 {
+		q.Limit = 20
 	}
 	if q.Order == "" {
 		q.Order = "desc"
