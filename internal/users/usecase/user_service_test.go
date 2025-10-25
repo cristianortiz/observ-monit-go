@@ -266,7 +266,7 @@ func TestUserService_ListUsers(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 2, len(users))
-		assert.Equal(t, 2, total)
+		assert.Equal(t, int64(2), total)
 		mockRepo.AssertExpectations(t)
 	})
 
@@ -284,7 +284,7 @@ func TestUserService_ListUsers(t *testing.T) {
 
 		require.NoError(t, err)
 		assert.Equal(t, 0, len(users))
-		assert.Equal(t, 0, total)
+		assert.Equal(t, int64(0), total)
 		mockRepo.AssertExpectations(t)
 	})
 }
