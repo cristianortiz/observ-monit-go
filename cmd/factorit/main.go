@@ -7,8 +7,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cristianortiz/observ-monit-go/internal/users/adapters/postgres"
+	"github.com/cristianortiz/observ-monit-go/internal/users/ports/http"
+	"github.com/cristianortiz/observ-monit-go/internal/users/usecase"
 	"github.com/cristianortiz/observ-monit-go/pkg/config"
 	"github.com/cristianortiz/observ-monit-go/pkg/database"
+	"github.com/cristianortiz/observ-monit-go/pkg/http-utils/middleware"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/health"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/logger"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
@@ -34,11 +38,14 @@ func main() {
 		panic("failed to create logger: " + err.Error())
 	}
 	defer log.Sync()
+	//Init Validator
+	middleware.InitValidator()
+	log.Info("Validator initialized")
 
 	log.Info("Starting Factorit Platform",
 		zap.String("environment", cfg.Environment),
 		zap.String("version", "1.0.0"),
-		zap.String("architecture", "modular-monolith"),
+		zap.Int("port", cfg.Service.Port),
 	)
 
 	// ========================================
@@ -71,7 +78,22 @@ func main() {
 	log.Info("Observability systems initialized")
 
 	// ========================================
-	// 5. CREATE FIBER APP
+	// 5. INITIALIZE USERS MODULE (NUEVO)
+	// ========================================
+
+	// Dependency Injection: Repository → Service → Handler
+	userRepository := postgres.NewUserRepository(db.Pool)
+	userService := usecase.NewUserService(userRepository)
+	userHandler := http.NewUserHandler(userService)
+
+	log.Info("Users module initialized",
+		zap.String("repository", "postgres"),
+		zap.String("service", "user_service"),
+		zap.String("handler", "user_handler"),
+	)
+
+	// ========================================
+	// 6. CREATE FIBER APP
 	// ========================================
 	app := fiber.New(fiber.Config{
 		AppName:      "Factorit Platform v1.0.0",
@@ -86,7 +108,7 @@ func main() {
 	}))
 
 	// ========================================
-	// 6. REGISTER OBSERVABILITY ROUTES
+	// 7. REGISTER OBSERVABILITY ROUTES
 	// ========================================
 	healthHandler.RegisterRoutes(
 		app,
@@ -102,13 +124,23 @@ func main() {
 	)
 
 	// ========================================
-	// 7. REGISTER MODULE ROUTES
+	// 8. REGISTER MODULE ROUTES
 	// ========================================
-	_ = app.Group("/api") // Will be used when modules are ready
+	app.Group("/api") // Will be used when modules are ready
 
-	// TODO: Users Module Routes (FASE 6 - Handlers)
-	// usersGroup := api.Group("/users")
-	// usersHandlers.RegisterRoutes(usersGroup)
+	// ✅ USERS MODULE ROUTES (Ya no es TODO)
+	http.RegisterRoutes(app, userHandler)
+
+	log.Info("Users module routes registered",
+		zap.String("prefix", "/api/users"),
+		zap.Strings("endpoints", []string{
+			"POST /api/users",
+			"GET /api/users",
+			"GET /api/users/:id",
+			"PUT /api/users/:id",
+			"DELETE /api/users/:id",
+		}),
+	)
 
 	// TODO: Products Module Routes (Future)
 	// productsGroup := api.Group("/products")
@@ -118,14 +150,15 @@ func main() {
 	// ordersGroup := api.Group("/orders")
 	// ordersHandlers.RegisterRoutes(ordersGroup)
 
-	log.Info("Module routes will be registered here",
-		zap.String("users_prefix", "/api/users"),
-		zap.String("products_prefix", "/api/products"),
-		zap.String("orders_prefix", "/api/orders"),
+	log.Info("API ready",
+		zap.String("base_path", "/api"),
+		zap.String("users_module", "✅ active"),
+		zap.String("products_module", "⏳ pending"),
+		zap.String("orders_module", "⏳ pending"),
 	)
 
 	// ========================================
-	// 8. START HTTP SERVER
+	// 9. START HTTP SERVER
 	// ========================================
 	go func() {
 		addr := cfg.GetServiceAddress()
@@ -141,7 +174,7 @@ func main() {
 	}()
 
 	// ========================================
-	// 9. GRACEFUL SHUTDOWN
+	// 10. GRACEFUL SHUTDOWN
 	// ========================================
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)

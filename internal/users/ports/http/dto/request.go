@@ -22,16 +22,18 @@ type LoginRequestDto struct {
 }
 
 type ListUsersQueryDto struct {
-	Limit  int    `query:"limit" validate:"omitempty,min=1,max=100"`
-	Offset int    `query:"offset" validate:"omitempty,min=0"`
-	Order  string `query:"order" validate:"omitempty,oneof=asc desc"`
+	Limit  int `query:"limit" validate:"omitempty,min=1,max=100"`
+	Offset int `query:"offset" validate:"omitempty,min=0"`
 }
 
 func (q *ListUsersQueryDto) SetDefaults() {
 	if q.Limit == 0 {
 		q.Limit = 20
 	}
-	if q.Order == "" {
-		q.Order = "desc"
+	if q.Limit > 100 { //límite máximo
+		q.Limit = 100
+	}
+	if q.Offset < 0 {
+		q.Offset = 0
 	}
 }

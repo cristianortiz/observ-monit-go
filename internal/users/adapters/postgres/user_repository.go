@@ -203,10 +203,10 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*domain
 	return users, nil
 }
 
-func (r *UserRepository) Count(ctx context.Context) (int, error) {
+func (r *UserRepository) Count(ctx context.Context) (int64, error) {
 	query := `SELECT COUNT(*) FROM users`
 
-	var count int
+	var count int64
 	err := r.db.QueryRow(ctx, query).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to count users: %w", err)

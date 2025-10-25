@@ -14,25 +14,40 @@ func MapToUserResponse(user *domain.User) UserResponseDto {
 }
 
 // MapToUserListReponse converts a slice of domain.User to UserListResponseDto with pagination details
-func MapToUserListResponse(users []*domain.User, totalCount int64, page, pageSize int) UserListResponseDto {
+func MapToUserListResponse(users []*domain.User, total int64, limit, offset int) UserListResponseDto {
 	userResponses := make([]UserResponseDto, len(users))
 	//mapping between layers
 	for i, user := range users {
 		userResponses[i] = MapToUserResponse(user)
 	}
 
-	//total pages
-	totalPages := int(totalCount) / pageSize
-	if int(totalCount)%pageSize != 0 {
-		totalPages++
+	// ✅ SAFE GUARD: Prevenir divide by zero
+	if limit <= 0 {
+		limit = 20 // Default fallback
+	}
+	if offset < 0 {
+		offset = 0 // Default fallback
+	}
+
+	// Calcular totalPages de forma segura
+	totalPages := 0
+	if total > 0 && limit > 0 {
+		totalPages = (int(total) + limit - 1) / limit // Ceiling division
+	}
+
+	// Calcular currentPage de forma segura
+	currentPage := 1
+	if limit > 0 {
+		currentPage = (offset / limit) + 1
 	}
 
 	return UserListResponseDto{
 		Users:      userResponses,
-		TotalCount: totalCount,
-		Page:       page,
-		PageSize:   pageSize,
+		TotalCount: total,
+		PageSize:   limit,
+		//Offset:     offset,
 		TotalPages: totalPages,
+		Page:       currentPage,
 	}
 
 }
