@@ -7,8 +7,8 @@ import (
 )
 
 // RegisterRoutes registers all user routes
-func RegisterRoutes(app *fiber.App, handler *UserHandler) {
-	api := app.Group("/api")
+func RegisterRoutes(app *fiber.App, handler *UserHandler, basePath string) {
+	api := app.Group(basePath)
 	users := api.Group("/users")
 
 	// CRUD operations

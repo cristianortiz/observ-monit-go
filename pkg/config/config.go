@@ -16,8 +16,13 @@ type Config struct {
 	Database      DatabaseConfig
 	Observability ObservabilityConfig
 	Security      SecurityConfig
+	API           ApiConfig
 }
 
+type ApiConfig struct {
+	ApiName  string
+	BasePath string
+}
 type ServiceConfig struct {
 	Name string
 	Host string
@@ -85,6 +90,9 @@ func Load(serviceName string) (*Config, error) {
 		},
 		Security: SecurityConfig{
 			JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
+		},
+		API: ApiConfig{
+			BasePath: getEnv("API_BASE_PATH", "/api/v1"),
 		},
 	}
 

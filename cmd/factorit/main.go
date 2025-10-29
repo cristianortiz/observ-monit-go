@@ -126,19 +126,23 @@ func main() {
 	// ========================================
 	// 8. REGISTER MODULE ROUTES
 	// ========================================
-	app.Group("/api") // Will be used when modules are ready
+	apiBasePath := cfg.API.BasePath
+	app.Group(apiBasePath) // Will be used when modules are ready
+	log.Info("API base path configured",
+		zap.String("base_path", apiBasePath),
+	)
 
-	// ✅ USERS MODULE ROUTES (Ya no es TODO)
-	http.RegisterRoutes(app, userHandler)
+	// ✅ USERS MODULE ROUTES
+	http.RegisterRoutes(app, userHandler, apiBasePath)
 
 	log.Info("Users module routes registered",
-		zap.String("prefix", "/api/users"),
+		zap.String("prefix", apiBasePath+"/users"),
 		zap.Strings("endpoints", []string{
-			"POST /api/users",
-			"GET /api/users",
-			"GET /api/users/:id",
-			"PUT /api/users/:id",
-			"DELETE /api/users/:id",
+			"POST " + apiBasePath + "/users",
+			"GET " + apiBasePath + "/users",
+			"GET " + apiBasePath + "/users/:id",
+			"PUT " + apiBasePath + "/users/:id",
+			"DELETE " + apiBasePath + "/users/:id",
 		}),
 	)
 
@@ -151,7 +155,7 @@ func main() {
 	// ordersHandlers.RegisterRoutes(ordersGroup)
 
 	log.Info("API ready",
-		zap.String("base_path", "/api"),
+		zap.String("base_path", apiBasePath),
 		zap.String("users_module", "✅ active"),
 		zap.String("products_module", "⏳ pending"),
 		zap.String("orders_module", "⏳ pending"),
