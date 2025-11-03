@@ -219,6 +219,28 @@ func TestMiddlewareWithDifferentStatusCodes(t *testing.T) {
 				Help: "Number of active HTTP connections",
 			},
 		),
+		// Agregar las nuevas métricas de errores
+		httpClientErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_client_errors_total",
+				Help: "Total number of HTTP 4xx client errors",
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+		httpServerErrors: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_server_errors_total",
+				Help: "Total number of HTTP 5xx server errors",
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+		httpSlowRequests: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_slow_requests_total",
+				Help: "Total number of HTTP requests exceeding SLO threshold",
+			},
+			[]string{"service", "method", "path", "threshold"},
+		),
 	}
 
 	registry.MustRegister(
@@ -227,6 +249,9 @@ func TestMiddlewareWithDifferentStatusCodes(t *testing.T) {
 		metrics.httpRequestSize,
 		metrics.httpResponseSize,
 		metrics.activeConnections,
+		metrics.httpClientErrors,
+		metrics.httpServerErrors,
+		metrics.httpSlowRequests,
 	)
 
 	app := fiber.New(fiber.Config{

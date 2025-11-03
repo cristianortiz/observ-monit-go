@@ -218,8 +218,24 @@ func TestHandleMetricsFormat(t *testing.T) {
 
 func TestRegisterRoutes(t *testing.T) {
 	// Test que verifica que RegisterRoutes configura la ruta correctamente
-	metrics := New("test-service")
-	handler := NewHandler(metrics)
+	// Usar un registro personalizado para evitar conflictos
+	registry := prometheus.NewRegistry()
+
+	// Crear métricas manualmente con el registro personalizado
+	counter := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_request_total",
+			Help: "Total number of HTTP requests",
+		},
+		[]string{"service", "method", "path", "status"},
+	)
+	registry.MustRegister(counter)
+
+	// Crear un struct Metrics vacío (solo para cumplir la firma)
+	metrics := &Metrics{}
+
+	// Crear un handler con gatherer personalizado
+	handler := newHandlerWithGatherer(metrics, registry)
 
 	app := fiber.New()
 	handler.RegisterRoutes(app)
