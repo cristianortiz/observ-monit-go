@@ -12,12 +12,26 @@ func RegisterRoutes(app *fiber.App, handler *UserHandler, basePath string) {
 	users := api.Group("/users")
 
 	// CRUD operations
+	users.Post("/",
+		middleware.ValidateBody[dto.CreateUserRequestDto](),
+		handler.CreateUser,
+	)
+
 	users.Get("/",
-		middleware.ValidateQuery[dto.ListUsersQueryDto](), // ← Middleware configurado
+		middleware.ValidateQuery[dto.ListUsersQueryDto](),
 		handler.ListUsers,
 	)
-	users.Post("/", handler.CreateUser)      // POST   /api/users
-	users.Get("/:id", handler.GetUser)       // GET    /api/users/:id
-	users.Put("/:id", handler.UpdateUser)    // PUT    /api/users/:id
-	users.Delete("/:id", handler.DeleteUser) // DELETE /api/users/:id
+
+	users.Get("/:id",
+		handler.GetUser,
+	)
+
+	users.Put("/:id",
+		middleware.ValidateBody[dto.UpdateUserRequestDto](),
+		handler.UpdateUser,
+	)
+
+	users.Delete("/:id",
+		handler.DeleteUser,
+	)
 }

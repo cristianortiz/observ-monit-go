@@ -52,6 +52,20 @@ func Middleware(config MetricsConfig) fiber.Handler {
 		//summary: response size
 		responseSize := float64(len(c.Response().Body()))
 		config.Metrics.RecordHTTPResponseSize(config.ServiceName, method, path, responseSize)
+
+		// Record error metrics based on status code
+		statusCode := c.Response().StatusCode()
+		if statusCode >= 400 && statusCode < 500 {
+			config.Metrics.RecordHTTPClientError(config.ServiceName, method, path, status)
+		} else if statusCode >= 500 {
+			config.Metrics.RecordHTTPServerError(config.ServiceName, method, path, status)
+		}
+
+		// Record slow requests (threshold: 1 second for demo, adjust based on your SLO)
+		if duration > 1.0 {
+			config.Metrics.RecordSlowRequest(config.ServiceName, method, path, "1s")
+		}
+
 		//7. decrease active connections gauge
 		config.Metrics.DecActiveConnections()
 

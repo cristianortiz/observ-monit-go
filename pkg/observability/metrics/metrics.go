@@ -12,6 +12,12 @@ type Metrics struct {
 	httpRequestDuration *prometheus.HistogramVec
 	httpRequestSize     *prometheus.SummaryVec
 	httpResponseSize    *prometheus.SummaryVec
+
+	// Error metrics
+	httpClientErrors *prometheus.CounterVec // 4xx errors
+	httpServerErrors *prometheus.CounterVec // 5xx errors
+	httpSlowRequests *prometheus.CounterVec // Requests exceeding SLO threshold
+
 	//system metrics
 	activeConnections prometheus.Gauge
 }
@@ -60,6 +66,33 @@ func New(serviceName string) *Metrics {
 				Help: "Number of active HTTP connections",
 			},
 		),
+
+		// Counter: HTTP 4xx client errors
+		httpClientErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_client_errors_total",
+				Help: "Total number of HTTP 4xx client errors",
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+
+		// Counter: HTTP 5xx server errors
+		httpServerErrors: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_server_errors_total",
+				Help: "Total number of HTTP 5xx server errors",
+			},
+			[]string{"service", "method", "path", "status"},
+		),
+
+		// Counter: Slow requests (exceeding SLO threshold)
+		httpSlowRequests: promauto.NewCounterVec(
+			prometheus.CounterOpts{
+				Name: "http_slow_requests_total",
+				Help: "Total number of HTTP requests exceeding SLO threshold",
+			},
+			[]string{"service", "method", "path", "threshold"},
+		),
 	}
 }
 
@@ -91,4 +124,19 @@ func (m *Metrics) IncActiveConnections() {
 // DecActiveConnections decrease the active connections counter, decrease the gauge in 1
 func (m *Metrics) DecActiveConnections() {
 	m.activeConnections.Dec()
+}
+
+// RecordHTTPClientError records a 4xx client error
+func (m *Metrics) RecordHTTPClientError(serviceName, method, path, status string) {
+	m.httpClientErrors.WithLabelValues(serviceName, method, path, status).Inc()
+}
+
+// RecordHTTPServerError records a 5xx server error
+func (m *Metrics) RecordHTTPServerError(serviceName, method, path, status string) {
+	m.httpServerErrors.WithLabelValues(serviceName, method, path, status).Inc()
+}
+
+// RecordSlowRequest records a request that exceeded the SLO threshold
+func (m *Metrics) RecordSlowRequest(serviceName, method, path, threshold string) {
+	m.httpSlowRequests.WithLabelValues(serviceName, method, path, threshold).Inc()
 }

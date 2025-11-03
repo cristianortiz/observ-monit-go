@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/cristianortiz/observ-monit-go/internal/users/domain"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,15 +25,23 @@ const (
 
 // UserRepository implements domain.UserRepository using  PostgreSQL
 type UserRepository struct {
-	db *pgxpool.Pool
+	db      *pgxpool.Pool
+	metrics *metrics.UserMetrics
 }
 
 // NewUserRepository crea una nueva instancia del repository
-func NewUserRepository(db *pgxpool.Pool) *UserRepository {
-	return &UserRepository{db: db}
+func NewUserRepository(db *pgxpool.Pool, metrics *metrics.UserMetrics) *UserRepository {
+	return &UserRepository{
+		db:      db,
+		metrics: metrics}
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		r.metrics.DBQueryDuration.Observe(duration.Seconds())
+	}()
 	query := `
         INSERT INTO users (id, name, email, password_hash, created_at, updated_at)
         VALUES ($1, $2, $3, $4, $5, $6)
@@ -165,6 +175,11 @@ func (r *UserRepository) Delete(ctx context.Context, id string) error {
 }
 
 func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*domain.User, error) {
+	start := time.Now()
+	defer func() {
+		duration := time.Since(start)
+		r.metrics.DBQueryDuration.Observe(duration.Seconds())
+	}()
 	query := `
         SELECT id, name, email, password_hash, created_at, updated_at
         FROM users

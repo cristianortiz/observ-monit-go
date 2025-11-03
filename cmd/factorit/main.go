@@ -75,16 +75,21 @@ func main() {
 	metricsSystem := metrics.New(cfg.Service.Name)
 	metricsHandler := metrics.NewHandler(metricsSystem)
 
-	log.Info("Observability systems initialized")
+	userMetrics := metrics.NewUserMetrics(cfg.Service.Name)
 
+	log.Info("Observability systems initialized",
+		zap.String("health", "active"),
+		zap.String("metrics", "active"),
+		zap.String("user_metrics", "active"),
+	)
 	// ========================================
 	// 5. INITIALIZE USERS MODULE (NUEVO)
 	// ========================================
 
 	// Dependency Injection: Repository → Service → Handler
-	userRepository := postgres.NewUserRepository(db.Pool)
+	userRepository := postgres.NewUserRepository(db.Pool, userMetrics)
 	userService := usecase.NewUserService(userRepository)
-	userHandler := http.NewUserHandler(userService)
+	userHandler := http.NewUserHandler(userService, userMetrics)
 
 	log.Info("Users module initialized",
 		zap.String("repository", "postgres"),

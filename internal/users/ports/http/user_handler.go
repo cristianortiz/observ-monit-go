@@ -6,18 +6,21 @@ import (
 	"github.com/cristianortiz/observ-monit-go/internal/users/domain"
 	"github.com/cristianortiz/observ-monit-go/internal/users/ports/http/dto"
 	"github.com/cristianortiz/observ-monit-go/internal/users/usecase"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
 	"github.com/gofiber/fiber/v2"
 )
 
 // UserHandler handles HTTP requests for user operations
 type UserHandler struct {
 	service *usecase.UserService
+	metrics metrics.UserMetrics
 }
 
 // NewUserHandler creates a new user handler
-func NewUserHandler(service *usecase.UserService) *UserHandler {
+func NewUserHandler(service *usecase.UserService, metrics *metrics.UserMetrics) *UserHandler {
 	return &UserHandler{
 		service: service,
+		metrics: *metrics,
 	}
 }
 
@@ -47,9 +50,11 @@ func (h *UserHandler) CreateUser(c *fiber.Ctx) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	h.metrics.UsersCreated.Inc()
 
 	// Return response
-	return c.Status(fiber.StatusCreated).JSON(dto.MapToUserResponse(user))
+	response := dto.MapToUserResponse(user)
+	return c.Status(fiber.StatusCreated).JSON(response)
 }
 
 // GetUser handles GET /api/users/:id
@@ -102,6 +107,7 @@ func (h *UserHandler) UpdateUser(c *fiber.Ctx) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
+	h.metrics.UsersUpdated.Inc()
 
 	return c.Status(fiber.StatusOK).JSON(dto.MapToUserResponse(user))
 }
@@ -121,7 +127,7 @@ func (h *UserHandler) DeleteUser(c *fiber.Ctx) error {
 	if err != nil {
 		return h.handleError(c, err)
 	}
-
+	h.metrics.UsersDeleted.Inc()
 	return c.SendStatus(fiber.StatusNoContent)
 }
 

@@ -11,13 +11,51 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d  
+      - ./migrations:/docker-entrypoint-initdb.d
+    networks:
+      - factorit-network  
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: factorit-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./pkg/config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    networks:
+      - factorit-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: factorit-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    # ✅ Sin volúmenes ni provisioning - configuración manual
+    networks:
+      - factorit-network
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: factorit-postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/observ-db?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - factorit-network
+    depends_on:
+      - postgres
 
 volumes:
   postgres_data:
     driver: local
+
+networks:
+  factorit-network:
+    driver: bridge

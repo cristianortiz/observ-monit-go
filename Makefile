@@ -24,14 +24,14 @@ test-coverage: ## Run tests with coverage
 	go tool cover -html=coverage.out
 
 # Database
-.PHONY: db-up
-db-up: ## Start PostgreSQL
-	docker-compose up -d postgres
-	@echo "Waiting for PostgreSQL..."
+.PHONY: infra-up
+infra-up: ## Start PostgreSQL
+	docker-compose up -d 
+	@echo "Waiting for PostgreSQL, Prometheus, Grafana and Postgres Exporter to be ready..."
 	@sleep 3
 
-.PHONY: db-down
-db-down: ## Stop PostgreSQL
+.PHONY: infra-down
+infra-down: ## Stop PostgreSQL
 	docker-compose down
 
 .PHONY: db-logs
