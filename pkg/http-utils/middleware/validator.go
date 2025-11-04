@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 )
 
 var validate *validator.Validate
@@ -15,6 +17,8 @@ var validate *validator.Validate
 // Call this once in main.go before starting the server
 func InitValidator() {
 	validate = validator.New(validator.WithRequiredStructEnabled())
+	// Register custom UUID validator
+	validate.RegisterValidation("uuid", validateUUID)
 }
 
 // ValidateStruct validates any struct using generics
@@ -98,6 +102,50 @@ func ValidateQuery[T any]() fiber.Handler {
 		}
 
 		c.Locals("validated_query", query)
+		return c.Next()
+	}
+}
+
+// validateUUID is a Custom validator to check if a string is a valid UUID
+func validateUUID(fl validator.FieldLevel) bool {
+	value := fl.Field().String()
+	_, err := uuid.Parse(value)
+	return err == nil
+}
+
+// ValidateParam validates a specific route parameter
+// Usage:
+//
+//	app.Get("/users/:id", middleware.ValidateParam("id", "uuid"), handler)
+func ValidateParam(paramName string, validationType string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		value := c.Params(paramName)
+
+		switch validationType {
+		case "uuid":
+			if _, err := uuid.Parse(value); err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error":   "validation_error",
+					"message": fmt.Sprintf("Invalid %s format", paramName),
+					"fields": fiber.Map{
+						paramName: fmt.Sprintf("must be a valid UUID, got: %s", value),
+					},
+				})
+			}
+		case "numeric":
+			if _, err := strconv.Atoi(value); err != nil {
+				return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+					"error":   "validation_error",
+					"message": fmt.Sprintf("Invalid %s format", paramName),
+					"fields": fiber.Map{
+						paramName: "must be a number",
+					},
+				})
+			}
+		default:
+			return fmt.Errorf("unknown validation type: %s", validationType)
+		}
+
 		return c.Next()
 	}
 }

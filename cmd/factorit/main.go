@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -102,7 +104,7 @@ func main() {
 	// ========================================
 	app := fiber.New(fiber.Config{
 		AppName:      "Factorit Platform v1.0.0",
-		ErrorHandler: customErrorHandler(log),
+		ErrorHandler: customErrorHandler(log, metricsSystem, cfg.Service.Name),
 	})
 
 	// Global Middlewares
@@ -167,7 +169,15 @@ func main() {
 	)
 
 	// ========================================
-	// 9. START HTTP SERVER
+	// 9. CATCH-ALL ROUTE FOR 404 METRICS
+	// ========================================
+	app.Use(func(c *fiber.Ctx) error {
+		//at this point is an invalid route, will return 404
+		return fiber.NewError(fiber.StatusNotFound,
+			fmt.Sprintf("Cannot %s %s", c.Method(), c.Path()))
+	})
+	// ========================================
+	// 10. START HTTP SERVER
 	// ========================================
 	go func() {
 		addr := cfg.GetServiceAddress()
@@ -203,12 +213,24 @@ func main() {
 }
 
 // customErrorHandler handles errors globally
-func customErrorHandler(log *logger.Logger) fiber.ErrorHandler {
+func customErrorHandler(log *logger.Logger, metrics *metrics.Metrics, serviceName string) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
 
 		if e, ok := err.(*fiber.Error); ok {
 			code = e.Code
+		}
+
+		//Register metrics for errors, especially 404s from catch-all
+		method := c.Method()
+		path := c.Path()
+		status := strconv.Itoa(code)
+
+		// Record error metrics based on status code
+		if code >= 400 && code < 500 {
+			metrics.RecordHTTPClientError(serviceName, method, path, status)
+		} else if code >= 500 {
+			metrics.RecordHTTPServerError(serviceName, method, path, status)
 		}
 
 		log.Error("HTTP error",

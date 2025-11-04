@@ -23,15 +23,17 @@ func RegisterRoutes(app *fiber.App, handler *UserHandler, basePath string) {
 	)
 
 	users.Get("/:id",
-		handler.GetUser,
-	)
+		middleware.ValidateParam("id", "uuid"),
+		handler.GetUser)
 
 	users.Put("/:id",
+		middleware.ValidateParam("id", "uuid"),
 		middleware.ValidateBody[dto.UpdateUserRequestDto](),
 		handler.UpdateUser,
 	)
 
 	users.Delete("/:id",
+		middleware.ValidateParam("id", "uuid"),
 		handler.DeleteUser,
 	)
 }
