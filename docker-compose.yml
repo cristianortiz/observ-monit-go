@@ -36,7 +36,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
-    # ✅ Sin volúmenes ni provisioning - configuración manual
+    # Sin volúmenes ni provisioning - configuración manual
     networks:
       - factorit-network
   postgres-exporter:
@@ -51,6 +51,19 @@ services:
       - factorit-network
     depends_on:
       - postgres
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: factorit-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4318:4318"    # OTLP HTTP receiver (recommended)
+      - "4317:4317"    # OTLP gRPC receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true  # Enable OpenTelemetry Protocol
+      - LOG_LEVEL=info
+    networks:
+      - factorit-network
 
 volumes:
   postgres_data:

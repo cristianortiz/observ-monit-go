@@ -46,11 +46,19 @@ type DatabaseConfig struct {
 
 type ObservabilityConfig struct {
 	LogLevel    string
-	LogFormat   string // <- NUEVO: json o console
-	JaegerURL   string
+	LogFormat   string // json o console
 	MetricsPath string
-	HealthPath  string // <- NUEVO
+	HealthPath  string
 	ReadyPath   string
+	Tracing     TracingConfig
+}
+
+type TracingConfig struct {
+	Enabled        bool
+	ServiceName    string
+	ServiceVersion string
+	OTLPEndpoint   string
+	Environment    string
 }
 
 type SecurityConfig struct {
@@ -83,10 +91,16 @@ func Load(serviceName string) (*Config, error) {
 		Observability: ObservabilityConfig{
 			LogLevel:    getEnv("LOG_LEVEL", "info"),
 			LogFormat:   getEnv("LOG_FORMAT", "json"),
-			JaegerURL:   getEnv("JAEGER_URL", "http://localhost:14268/api/traces"),
 			MetricsPath: getEnv("METRICS_PATH", "/metrics"),
 			HealthPath:  getEnv("HEALTH_PATH", "/health"),
 			ReadyPath:   getEnv("READY_PATH", "/ready"),
+			Tracing: TracingConfig{
+				Enabled:        getEnvBool("TRACING_ENABLED", true),
+				ServiceName:    getEnv("TRACING_SERVICE_NAME", serviceName),
+				ServiceVersion: getEnv("TRACING_SERVICE_VERSION", "1.0.0"),
+				OTLPEndpoint:   getEnv("TRACING_OTLP_ENDPOINT", "localhost:4317"),
+				Environment:    getEnv("TRACING_ENVIRONMENT", "development"),
+			},
 		},
 		Security: SecurityConfig{
 			JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
