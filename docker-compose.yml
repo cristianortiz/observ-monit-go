@@ -57,7 +57,7 @@ services:
     restart: unless-stopped
     ports:
       - "16686:16686"  # Jaeger UI
-      - "4318:4318"    # OTLP HTTP receiver (recommended)
+      - "4318:4318"    # OTLP HTTP receiver
       - "4317:4317"    # OTLP gRPC receiver
     environment:
       - COLLECTOR_OTLP_ENABLED=true  # Enable OpenTelemetry Protocol

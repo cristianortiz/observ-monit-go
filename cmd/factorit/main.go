@@ -18,6 +18,8 @@ import (
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/health"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/logger"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/tracing"
+	"github.com/gofiber/contrib/otelfiber/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
@@ -48,6 +50,33 @@ func main() {
 		zap.String("environment", cfg.Environment),
 		zap.String("version", "1.0.0"),
 		zap.Int("port", cfg.Service.Port),
+	)
+
+	// ========================================
+	// 2.5 INITIALIZE TRACING
+	// ========================================
+	shutdown, err := tracing.InitTracing(tracing.TracingConfig{
+		ServiceName:    cfg.Observability.Tracing.ServiceName,
+		ServiceVersion: cfg.Observability.Tracing.ServiceVersion,
+		Environment:    cfg.Observability.Tracing.Environment,
+		OTLPEndpoint:   cfg.Observability.Tracing.OTLPEndpoint,
+		Enabled:        cfg.Observability.Tracing.Enabled,
+	})
+	if err != nil {
+		log.Fatal("failed to initialize tracing", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown tracer", zap.Error(err))
+		}
+	}()
+
+	log.Info("Distributed tracing initialized",
+		zap.String("service", cfg.Observability.Tracing.ServiceName),
+		zap.String("endpoint", cfg.Observability.Tracing.OTLPEndpoint),
+		zap.Bool("enabled", cfg.Observability.Tracing.Enabled),
 	)
 
 	// ========================================
@@ -109,6 +138,20 @@ func main() {
 
 	// Global Middlewares
 	app.Use(recover.New())
+
+	// Tracing middleware (BEFORE metrics to capture full request)
+	if cfg.Observability.Tracing.Enabled {
+		app.Use(otelfiber.Middleware(
+			otelfiber.WithSpanNameFormatter(func(ctx *fiber.Ctx) string {
+				return fmt.Sprintf("%s %s", ctx.Method(), ctx.Route().Path)
+			}),
+		))
+		log.Info("Tracing middleware enabled (official otelfiber)",
+			zap.String("service", cfg.Observability.Tracing.ServiceName),
+		)
+	}
+
+	// Metrics middleware
 	app.Use(metrics.Middleware(metrics.MetricsConfig{
 		ServiceName: cfg.Service.Name,
 		Metrics:     metricsSystem,
