@@ -1,4 +1,37 @@
+# Project planning
 /PROJECT_PLAN.md
+docs/
+
+# Build artifacts
 bin/
 *.out
-docs/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Environment variables (IMPORTANT: Never commit credentials)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# Test coverage
+coverage.txt
+*.coverprofile
+
+# Docker volumes (local data)
+postgres_data/
+loki-data/
+promtail-data/
