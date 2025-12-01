@@ -120,7 +120,7 @@ func main() {
 	// Dependency Injection: Repository → Service → Handler
 	userRepository := postgres.NewUserRepository(db.Pool, userMetrics)
 	userService := usecase.NewUserService(userRepository)
-	userHandler := http.NewUserHandler(userService, userMetrics)
+	userHandler := http.NewUserHandler(userService, userMetrics, log)
 
 	log.Info("Users module initialized",
 		zap.String("repository", "postgres"),
