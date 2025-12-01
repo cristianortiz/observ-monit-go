@@ -77,11 +77,11 @@ func TestUserService_CreateUser(t *testing.T) {
 		service := NewUserService(mockRepo)
 
 		// Mock: email doesn't exist
-		mockRepo.On("GetByEmail", ctx, "john@example.com").
+		mockRepo.On("GetByEmail", mock.Anything, "john@example.com").
 			Return(nil, domain.ErrUserNotFound)
 
 		// Mock: create succeeds
-		mockRepo.On("Create", ctx, mock.AnythingOfType("*domain.User")).
+		mockRepo.On("Create", mock.Anything, mock.AnythingOfType("*domain.User")).
 			Return(nil)
 
 		user, err := service.CreateUser(ctx, "John Doe", "john@example.com", "SecurePass123!")
@@ -100,7 +100,7 @@ func TestUserService_CreateUser(t *testing.T) {
 		existingUser, _ := domain.NewUser("Jane Doe", "john@example.com", "Pass123!")
 
 		// Mock: email exists
-		mockRepo.On("GetByEmail", ctx, "john@example.com").
+		mockRepo.On("GetByEmail", mock.Anything, "john@example.com").
 			Return(existingUser, nil)
 
 		user, err := service.CreateUser(ctx, "John Doe", "john@example.com", "SecurePass123!")
@@ -121,7 +121,7 @@ func TestUserService_GetUserByID(t *testing.T) {
 
 		expectedUser, _ := domain.NewUser("John Doe", "john@example.com", "Pass123!")
 
-		mockRepo.On("GetByID", ctx, expectedUser.ID).
+		mockRepo.On("GetByID", mock.Anything, expectedUser.ID).
 			Return(expectedUser, nil)
 
 		user, err := service.GetUserByID(ctx, expectedUser.ID)
@@ -135,7 +135,7 @@ func TestUserService_GetUserByID(t *testing.T) {
 		mockRepo := new(MockUserRepository)
 		service := NewUserService(mockRepo)
 
-		mockRepo.On("GetByID", ctx, "non-existent-id").
+		mockRepo.On("GetByID", mock.Anything, "non-existent-id").
 			Return(nil, domain.ErrUserNotFound)
 
 		user, err := service.GetUserByID(ctx, "non-existent-id")
@@ -156,15 +156,15 @@ func TestUserService_UpdateUser(t *testing.T) {
 		existingUser, _ := domain.NewUser("John Doe", "john@example.com", "Pass123!")
 
 		// Mock: get existing user
-		mockRepo.On("GetByID", ctx, existingUser.ID).
+		mockRepo.On("GetByID", mock.Anything, existingUser.ID).
 			Return(cloneUser(existingUser), nil)
 
 		// Mock: new email doesn't exist
-		mockRepo.On("GetByEmail", ctx, "newemail@example.com").
+		mockRepo.On("GetByEmail", mock.Anything, "newemail@example.com").
 			Return(nil, domain.ErrUserNotFound)
 
 		// Mock: update succeeds
-		mockRepo.On("Update", ctx, mock.AnythingOfType("*domain.User")).
+		mockRepo.On("Update", mock.Anything, mock.AnythingOfType("*domain.User")).
 			Return(nil)
 
 		user, err := service.UpdateUser(ctx, existingUser.ID, "Jane Doe", "newemail@example.com")
@@ -179,7 +179,7 @@ func TestUserService_UpdateUser(t *testing.T) {
 		mockRepo := new(MockUserRepository)
 		service := NewUserService(mockRepo)
 
-		mockRepo.On("GetByID", ctx, "non-existent-id").
+		mockRepo.On("GetByID", mock.Anything, "non-existent-id").
 			Return(nil, domain.ErrUserNotFound)
 
 		user, err := service.UpdateUser(ctx, "non-existent-id", "Jane Doe", "jane@example.com")
@@ -196,10 +196,10 @@ func TestUserService_UpdateUser(t *testing.T) {
 		existingUser, _ := domain.NewUser("John Doe", "john@example.com", "Pass123!")
 		otherUser, _ := domain.NewUser("Jane Doe", "jane@example.com", "Pass123!")
 
-		mockRepo.On("GetByID", ctx, existingUser.ID).
+		mockRepo.On("GetByID", mock.Anything, existingUser.ID).
 			Return(cloneUser(existingUser), nil)
 
-		mockRepo.On("GetByEmail", ctx, "jane@example.com").
+		mockRepo.On("GetByEmail", mock.Anything, "jane@example.com").
 			Return(otherUser, nil)
 
 		user, err := service.UpdateUser(ctx, existingUser.ID, "John Doe", "jane@example.com")
@@ -219,10 +219,10 @@ func TestUserService_DeleteUser(t *testing.T) {
 
 		existingUser, _ := domain.NewUser("John Doe", "john@example.com", "Pass123!")
 
-		mockRepo.On("GetByID", ctx, existingUser.ID).
+		mockRepo.On("GetByID", mock.Anything, existingUser.ID).
 			Return(existingUser, nil)
 
-		mockRepo.On("Delete", ctx, existingUser.ID).
+		mockRepo.On("Delete", mock.Anything, existingUser.ID).
 			Return(nil)
 
 		err := service.DeleteUser(ctx, existingUser.ID)
@@ -235,7 +235,7 @@ func TestUserService_DeleteUser(t *testing.T) {
 		mockRepo := new(MockUserRepository)
 		service := NewUserService(mockRepo)
 
-		mockRepo.On("GetByID", ctx, "non-existent-id").
+		mockRepo.On("GetByID", mock.Anything, "non-existent-id").
 			Return(nil, domain.ErrUserNotFound)
 
 		err := service.DeleteUser(ctx, "non-existent-id")
@@ -256,10 +256,10 @@ func TestUserService_ListUsers(t *testing.T) {
 		user2, _ := domain.NewUser("User 2", "user2@example.com", "Pass123!")
 		expectedUsers := []*domain.User{user1, user2}
 
-		mockRepo.On("List", ctx, 20, 0).
+		mockRepo.On("List", mock.Anything, 20, 0).
 			Return(expectedUsers, nil)
 
-		mockRepo.On("Count", ctx).
+		mockRepo.On("Count", mock.Anything).
 			Return(2, nil)
 
 		users, total, err := service.ListUsers(ctx, 20, 0)
@@ -274,10 +274,10 @@ func TestUserService_ListUsers(t *testing.T) {
 		mockRepo := new(MockUserRepository)
 		service := NewUserService(mockRepo)
 
-		mockRepo.On("List", ctx, 20, 0).
+		mockRepo.On("List", mock.Anything, 20, 0).
 			Return([]*domain.User{}, nil)
 
-		mockRepo.On("Count", ctx).
+		mockRepo.On("Count", mock.Anything).
 			Return(0, nil)
 
 		users, total, err := service.ListUsers(ctx, 0, -1) // Invalid params
