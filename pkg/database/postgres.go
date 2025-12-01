@@ -7,8 +7,10 @@ import (
 	"time"
 
 	"github.com/cristianortiz/observ-monit-go/pkg/config"
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/zap"
 )
 
@@ -37,6 +39,18 @@ func NewPostgresDB(ctx context.Context, cfg *config.Config, logger *zap.Logger) 
 	poolConfig, err := pgxpool.ParseConfig(connString)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse pool config: %w", err)
+	}
+
+	// OpenTelemetry Tracing for PostgreSQL
+	if cfg.Observability.Tracing.Enabled {
+		tracer := otelpgx.NewTracer(
+			otelpgx.WithTracerProvider(otel.GetTracerProvider()),
+		)
+		poolConfig.ConnConfig.Tracer = tracer
+
+		logger.Info("PostgreSQL tracing enabled",
+			zap.String("service", cfg.Observability.Tracing.ServiceName),
+		)
 	}
 
 	poolConfig.MaxConns = cfg.Database.MaxConns

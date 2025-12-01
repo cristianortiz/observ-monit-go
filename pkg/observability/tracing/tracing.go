@@ -10,7 +10,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"google.golang.org/grpc"
 )
 
 type TracingConfig struct {
@@ -33,7 +32,6 @@ func InitTracing(config TracingConfig) (func(context.Context) error, error) {
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(config.OTLPEndpoint),
 		otlptracegrpc.WithInsecure(), // Use WithTLSCredentials for production
-		otlptracegrpc.WithDialOption(grpc.WithDefaultCallOptions()),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP gRPC trace exporter: %w", err)

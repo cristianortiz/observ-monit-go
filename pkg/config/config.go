@@ -112,7 +112,7 @@ func Load(serviceName string) (*Config, error) {
 
 	// Service-specific port override
 	servicePortEnv := strings.ToUpper(strings.ReplaceAll(serviceName, "-", "_")) + "_PORT"
-	println("service name:", servicePortEnv)
+	// Note: removed println to avoid non-JSON logs that break Loki parsing
 	if port := os.Getenv(servicePortEnv); port != "" {
 		if p, err := strconv.Atoi(port); err == nil {
 			config.Service.Port = p
