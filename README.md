@@ -688,11 +688,17 @@ observ-monit-go/
 
 ### Observability Stack
 
-- **Tracing**: OpenTelemetry + Jaeger
-- **Metrics**: Prometheus + Grafana
-- **Logging**: Zap (structured logging) + Loki
-- **Health Checks**: Custom health endpoints
-- **APM**: Go pprof integration
+- **Tracing**: OpenTelemetry SDK → **OTEL Collector** → Jaeger ✅
+- **Metrics**: OpenTelemetry Metrics SDK → **OTEL Collector** → Prometheus + Grafana ✅
+- **Logging**: Zap (structured logging) → Promtail → Loki ⏳
+- **Health Checks**: Custom health endpoints ✅
+- **APM**: Go pprof integration ✅
+- **Central Hub**: **OpenTelemetry Collector** (vendor-agnostic telemetry pipeline) ✅
+
+**Architecture Highlights:**
+- Single point of telemetry: All signals (traces, metrics, logs) flow through OTEL Collector
+- Vendor-agnostic: Change backends without modifying application code
+- Centralized processing: Batching, sampling, filtering at the Collector level
 
 ### Infrastructure
 
@@ -724,21 +730,61 @@ github.com/go-playground/validator/v10
 
 ## 🚀 Getting Started
 
-> **Note**: This project is currently under development. Setup instructions will be added as we progress through each implementation phase.
-
 ### Prerequisites
 
 - Go 1.24+
 - Docker & Docker Compose
-- PostgreSQL (or use Docker Compose)
+- PostgreSQL (via Docker Compose)
+
+### Quick Start
+
+```bash
+# 1. Clone repository
+git clone https://github.com/cristianortiz/observ-monit-go.git
+cd observ-monit-go
+
+# 2. Start infrastructure (Postgres, OTEL Collector, Prometheus, Jaeger, Grafana, Loki)
+docker-compose up -d
+
+# 3. Run database migrations
+./scripts/migrate.sh up
+
+# 4. Start the application
+go run cmd/factorit/main.go
+
+# 5. Test the API
+curl http://localhost:8080/health
+curl http://localhost:8080/api/v1/users
+```
+
+### Access Observability Tools
+
+| Tool | URL | Credentials | Purpose |
+|------|-----|-------------|---------|
+| **Grafana** | http://localhost:3000 | admin / admin | Metrics dashboards & visualization |
+| **Prometheus** | http://localhost:9090 | - | Metrics storage & querying |
+| **Jaeger UI** | http://localhost:16686 | - | Distributed tracing visualization |
+| **OTEL Collector** | http://localhost:13133 | - | Health check |
+| **OTEL zpages** | http://localhost:55679/debug/servicez | - | Collector debugging |
+
+### Key Dashboards
+
+**📊 OTEL HTTP Metrics Dashboard:**
+- URL: http://localhost:3000/d/factorit-otel-http
+- Shows: Request rates, latency percentiles, error rates, status codes, OTEL auto-instrumentation
+- Refresh: Every 5 seconds
 
 ### Current Status
 
 - [x] Project structure setup
 - [x] Clean Architecture foundation
-- [ ] Basic Users service implementation
-- [ ] Observability stack configuration
-- [ ] Docker Compose setup
+- [x] Users service implementation (CRUD)
+- [x] OpenTelemetry Collector setup
+- [x] Distributed Tracing (OTEL → Collector → Jaeger)
+- [x] OTEL Metrics (OTEL SDK → Collector → Prometheus)
+- [x] Grafana dashboards for OTEL metrics
+- [ ] OTEL Logs (planned for FASE 4)
+- [ ] Advanced sampling & filtering (FASE 5)
 
 ## 📈 Observability Features (Planned)
 

@@ -96,6 +96,39 @@ services:
       - LOG_LEVEL=info
     networks:
       - factorit-network
+
+  # ============================================
+  # OTEL COLLECTOR - Central Telemetry Hub
+  # ============================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: factorit-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./config/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      # OTLP receivers (para recibir telemetría de la app)
+      - "4319:4317"    # OTLP gRPC receiver (puerto externo 4319 → interno 4317)
+      - "4320:4318"    # OTLP HTTP receiver (puerto externo 4320 → interno 4318)
+      # Prometheus metrics endpoint (Prometheus hará scraping aquí)
+      - "8889:8889"    # Prometheus exporter
+      # Self-monitoring endpoints
+      - "8888:8888"    # Collector self-metrics
+      - "13133:13133"  # Health check
+      - "55679:55679"  # zpages (debug UI)
+      - "1777:1777"    # pprof (profiling)
+    networks:
+      - factorit-network
+    depends_on:
+      - jaeger
+      - loki
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ============================================
   # LOKI - Log Aggregation System
   # ============================================

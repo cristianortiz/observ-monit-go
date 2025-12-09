@@ -45,12 +45,13 @@ type DatabaseConfig struct {
 }
 
 type ObservabilityConfig struct {
-	LogLevel    string
-	LogFormat   string // json o console
-	MetricsPath string
-	HealthPath  string
-	ReadyPath   string
-	Tracing     TracingConfig
+	LogLevel       string
+	LogFormat      string // json o console
+	MetricsPath    string
+	HealthPath     string
+	ReadyPath      string
+	MetricsEnabled bool
+	Tracing        TracingConfig
 }
 
 type TracingConfig struct {
@@ -89,11 +90,13 @@ func Load(serviceName string) (*Config, error) {
 			HealthCheckInterval: getEnvDuration("DB_HEALTH_CHECK_INTERVAL", 1*time.Minute),
 		},
 		Observability: ObservabilityConfig{
-			LogLevel:    getEnv("LOG_LEVEL", "info"),
-			LogFormat:   getEnv("LOG_FORMAT", "json"),
-			MetricsPath: getEnv("METRICS_PATH", "/metrics"),
-			HealthPath:  getEnv("HEALTH_PATH", "/health"),
-			ReadyPath:   getEnv("READY_PATH", "/ready"),
+			LogLevel:       getEnv("LOG_LEVEL", "info"),
+			LogFormat:      getEnv("LOG_FORMAT", "json"),
+			MetricsPath:    getEnv("METRICS_PATH", "/metrics"),
+			HealthPath:     getEnv("HEALTH_PATH", "/health"),
+			ReadyPath:      getEnv("READY_PATH", "/ready"),
+			MetricsEnabled: getEnvBool("METRICS_ENABLED", true),
+
 			Tracing: TracingConfig{
 				Enabled:        getEnvBool("TRACING_ENABLED", true),
 				ServiceName:    getEnv("TRACING_SERVICE_NAME", serviceName),

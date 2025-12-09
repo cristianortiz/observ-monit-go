@@ -1,0 +1,115 @@
+# ============================================
+# OpenTelemetry Collector Configuration
+# ============================================
+# Este archivo define cómo el Collector recibe, procesa y exporta telemetría
+
+# ============================================
+# RECEIVERS: Cómo recibe telemetría
+# ============================================
+receivers:
+  # OTLP receiver - Protocolo estándar de OpenTelemetry
+  # Acepta métricas, traces y logs desde la aplicación Go
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317  # Puerto para OTLP gRPC
+      http:
+        endpoint: 0.0.0.0:4318  # Puerto para OTLP HTTP (backup)
+
+# ============================================
+# PROCESSORS: Transformaciones y optimizaciones
+# ============================================
+processors:
+  # Batch processor: agrupa telemetría para envíos eficientes
+  # En lugar de enviar cada span/métrica individualmente, los agrupa
+  batch:
+    timeout: 10s              # Enviar cada 10 segundos
+    send_batch_size: 1024     # O cuando tenga 1024 items
+    send_batch_max_size: 2048 # Máximo 2048 items por batch
+
+  # Memory limiter: previene que el Collector consuma toda la RAM
+  memory_limiter:
+    check_interval: 1s        # Revisar uso de memoria cada segundo
+    limit_mib: 512            # Límite suave: 512MB
+    spike_limit_mib: 128      # Permitir picos de +128MB
+
+  # Resource processor: enriquece telemetría con metadata del servicio
+  resource:
+    attributes:
+      - key: deployment.environment
+        value: development
+        action: insert
+
+# ============================================
+# EXPORTERS: A dónde envía telemetría
+# ============================================
+exporters:
+  # Prometheus exporter - Expone métricas en formato Prometheus
+  # Prometheus hará scraping de este endpoint
+  prometheus:
+    endpoint: "0.0.0.0:8889"  # Exponer en puerto 8889
+    namespace: factorit       # Prefijo para todas las métricas
+
+  # Jaeger exporter - Envía traces a Jaeger vía OTLP
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true          # Sin TLS en desarrollo
+
+  # Loki exporter - Envía logs a Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+
+  # Debug exporter - Para development, imprime en logs del Collector
+  debug:
+    verbosity: detailed
+    sampling_initial: 5       # Primeros 5 spans con detalle
+    sampling_thereafter: 200  # Luego 1 cada 200
+
+# ============================================
+# EXTENSIONS: Funcionalidades adicionales
+# ============================================
+extensions:
+  # Health check endpoint - Para verificar si Collector está vivo
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # pprof - Profiling del Collector (CPU, memoria)
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zpages - Debugging UI del Collector
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+# ============================================
+# SERVICE: Conecta todo (receivers → processors → exporters)
+# ============================================
+service:
+  extensions: [health_check, pprof, zpages]
+
+  pipelines:
+    # Pipeline de traces: App → OTLP receiver → processors → Jaeger
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/jaeger, debug]
+
+    # Pipeline de métricas: App → OTLP receiver → processors → Prometheus
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus, debug]
+
+    # Pipeline de logs: App → OTLP receiver → processors → Loki
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [loki, debug]
+
+  # Telemetría del propio Collector (self-monitoring)
+  telemetry:
+    logs:
+      level: info             # Nivel de logs: debug, info, warn, error
+    metrics:
+      address: 0.0.0.0:8888   # Self-metrics en :8888

@@ -80,6 +80,33 @@ func main() {
 	)
 
 	// ========================================
+	// 2.6 INITIALIZE OTEL METRICS
+	// ========================================
+	otelMetrics, shutdownMetrics, err := metrics.NewOTELMetrics(context.Background(), metrics.OTELMetricsConfig{
+		ServiceName:    cfg.Service.Name,
+		ServiceVersion: "1.0.0",
+		Environment:    cfg.Environment,
+		OTLPEndpoint:   cfg.Observability.Tracing.OTLPEndpoint, // Mismo endpoint que tracing
+		Enabled:        cfg.Observability.MetricsEnabled,
+	})
+	if err != nil {
+		log.Fatal("failed to initialize OTEL metrics", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			log.Error("failed to shutdown OTEL metrics", zap.Error(err))
+		}
+	}()
+
+	log.Info("OTEL Metrics initialized",
+		zap.String("service", cfg.Service.Name),
+		zap.String("endpoint", cfg.Observability.Tracing.OTLPEndpoint),
+		zap.Bool("enabled", cfg.Observability.MetricsEnabled),
+	)
+
+	// ========================================
 	// 3. INITIALIZE DATABASE
 	// ========================================
 	ctx := context.Background()
@@ -103,8 +130,8 @@ func main() {
 	healthHandler := health.NewHandler(healthSystem, log)
 
 	// Metrics System
-	metricsSystem := metrics.New(cfg.Service.Name)
-	metricsHandler := metrics.NewHandler(metricsSystem)
+	// metricsSystem := metrics.New(cfg.Service.Name)
+	// metricsHandler := metrics.NewHandler(metricsSystem)
 
 	userMetrics := metrics.NewUserMetrics(cfg.Service.Name)
 
@@ -133,7 +160,7 @@ func main() {
 	// ========================================
 	app := fiber.New(fiber.Config{
 		AppName:      "Factorit Platform v1.0.0",
-		ErrorHandler: customErrorHandler(log, metricsSystem, cfg.Service.Name),
+		ErrorHandler: customErrorHandler(log, otelMetrics, cfg.Service.Name),
 	})
 
 	// Global Middlewares
@@ -151,11 +178,15 @@ func main() {
 		)
 	}
 
-	// Metrics middleware
-	app.Use(metrics.Middleware(metrics.MetricsConfig{
+	// Metrics middleware (OTEL)
+	app.Use(metrics.OTELMiddleware(metrics.OTELMiddlewareConfig{
 		ServiceName: cfg.Service.Name,
-		Metrics:     metricsSystem,
+		Metrics:     otelMetrics,
 	}))
+
+	log.Info("OTEL Metrics middleware enabled",
+		zap.String("service", cfg.Service.Name),
+	)
 
 	// ========================================
 	// 7. REGISTER OBSERVABILITY ROUTES
@@ -165,12 +196,10 @@ func main() {
 		cfg.Observability.HealthPath,
 		cfg.Observability.ReadyPath,
 	)
-	metricsHandler.RegisterRoutes(app)
 
 	log.Info("Observability routes registered",
 		zap.String("health", cfg.Observability.HealthPath),
 		zap.String("ready", cfg.Observability.ReadyPath),
-		zap.String("metrics", "/metrics"),
 	)
 
 	// ========================================
@@ -256,13 +285,16 @@ func main() {
 }
 
 // customErrorHandler handles errors globally
-func customErrorHandler(log *logger.Logger, metrics *metrics.Metrics, serviceName string) fiber.ErrorHandler {
+func customErrorHandler(log *logger.Logger, otelMetrics *metrics.OTELMetrics, serviceName string) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
 
 		if e, ok := err.(*fiber.Error); ok {
 			code = e.Code
 		}
+
+		// IMPORTANTE: Obtener context de Fiber para OTEL
+		ctx := c.UserContext()
 
 		//Register metrics for errors, especially 404s from catch-all
 		method := c.Method()
@@ -271,9 +303,9 @@ func customErrorHandler(log *logger.Logger, metrics *metrics.Metrics, serviceNam
 
 		// Record error metrics based on status code
 		if code >= 400 && code < 500 {
-			metrics.RecordHTTPClientError(serviceName, method, path, status)
+			otelMetrics.RecordHTTPClientError(ctx, serviceName, method, path, status)
 		} else if code >= 500 {
-			metrics.RecordHTTPServerError(serviceName, method, path, status)
+			otelMetrics.RecordHTTPServerError(ctx, serviceName, method, path, status)
 		}
 
 		log.Error("HTTP error",
