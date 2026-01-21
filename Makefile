@@ -23,16 +23,74 @@ test-coverage: ## Run tests with coverage
 	go test -v -race -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out
 
-# Database
+# Infrastructure & Docker
+.PHONY: docker-up
+docker-up: ## Start all infrastructure + factorit app in Docker
+	@echo "🚀 Starting complete infrastructure..."
+	docker-compose up -d --build
+	@echo "⏳ Waiting for services to be ready..."
+	@sleep 5
+	@echo "✅ Infrastructure ready!"
+	@echo ""
+	@echo "📊 Services available:"
+	@echo "  - Factorit API:        http://localhost:8080"
+	@echo "  - Factorit Health:     http://localhost:8080/health"
+	@echo "  - Grafana:             http://localhost:3000 (admin/admin)"
+	@echo "  - Prometheus:          http://localhost:9090"
+	@echo "  - Jaeger UI:           http://localhost:16686"
+	@echo "  - Loki API:            http://localhost:3100"
+	@echo "  - PostgreSQL:          localhost:5432"
+	@echo ""
+	@echo "💡 View logs: make logs"
+
+.PHONY: docker-down
+docker-down: ## Stop all Docker containers
+	@echo "🛑 Stopping all containers..."
+	docker-compose down
+	@echo "✅ All containers stopped"
+
+.PHONY: docker-restart
+docker-restart: docker-down docker-up ## Restart all Docker containers
+
+.PHONY: docker-clean
+docker-clean: ## Stop containers and remove volumes (⚠️  deletes data)
+	@echo "⚠️  This will delete all data (postgres, loki logs, etc)"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		docker-compose down -v; \
+		echo "✅ Containers and volumes removed"; \
+	else \
+		echo "❌ Cancelled"; \
+	fi
+
+.PHONY: logs
+logs: ## Show logs from all containers
+	docker-compose logs -f
+
+.PHONY: logs-app
+logs-app: ## Show logs from factorit app only
+	docker-compose logs -f factorit
+
+.PHONY: logs-loki
+logs-loki: ## Show Loki logs
+	docker-compose logs -f loki
+
+.PHONY: logs-otel
+logs-otel: ## Show OTEL Collector logs
+	docker-compose logs -f otel-collector
+
 .PHONY: infra-up
-infra-up: ## Start PostgreSQL
-	docker-compose up -d 
-	@echo "Waiting for PostgreSQL, Prometheus, Grafana and Postgres Exporter to be ready..."
+infra-up: ## Start only infrastructure (without factorit app)
+	@echo "🚀 Starting infrastructure services..."
+	docker-compose up -d postgres prometheus grafana postgres-exporter jaeger loki otel-collector
+	@echo "⏳ Waiting for services to be ready..."
 	@sleep 3
+	@echo "✅ Infrastructure ready!"
 
 .PHONY: infra-down
-infra-down: ## Stop PostgreSQL
-	docker-compose down
+infra-down: ## Stop only infrastructure
+	docker-compose stop postgres prometheus grafana postgres-exporter jaeger loki otel-collector
 
 .PHONY: db-logs
 db-logs: ## Show PostgreSQL logs
@@ -78,8 +136,14 @@ db-reset: migrate-down migrate-up db-seed ## Reset database (down, up, seed)
 
 # Setup
 .PHONY: setup
-setup: db-up migrate-up ## Complete setup
+setup: infra-up migrate-up ## Complete setup (infra + migrations)
 	@echo "✓ Setup complete!"
+
+.PHONY: setup-full
+setup-full: docker-up ## Complete setup with factorit in Docker
+	@echo "⏳ Waiting for factorit to be ready..."
+	@sleep 3
+	@echo "✓ Full setup complete!"
 
 # Clean
 .PHONY: clean

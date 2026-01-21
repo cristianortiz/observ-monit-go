@@ -8,9 +8,12 @@ import (
 
 	"github.com/cristianortiz/observ-monit-go/internal/users/domain"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/tracing"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // PostgreSQL error codes that maps to domain errors
@@ -29,6 +32,8 @@ type UserRepository struct {
 	metrics *metrics.UserMetrics
 }
 
+var repoTracer = otel.Tracer("users.repository")
+
 // NewUserRepository crea una nueva instancia del repository
 func NewUserRepository(db *pgxpool.Pool, metrics *metrics.UserMetrics) *UserRepository {
 	return &UserRepository{
@@ -37,6 +42,12 @@ func NewUserRepository(db *pgxpool.Pool, metrics *metrics.UserMetrics) *UserRepo
 }
 
 func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.Create")
+	defer span.End()
+
+	tracing.SetUserAttributes(span, user.ID, user.Email, user.Name)
+	tracing.SetOperationAttributes(span, "Create", tracing.OperationTypeCreate, tracing.EntityUser)
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
@@ -59,17 +70,28 @@ func (r *UserRepository) Create(ctx context.Context, user *domain.User) error {
 	if err != nil {
 		// duplicated email is a domain error
 		if isUniqueViolation(err, constraintUsersEmailKey) {
+			// info about failed constraint
+			span.SetAttributes(attribute.String("error.type", "unique_violation"))
+			tracing.RecordError(span, domain.ErrEmailAlreadyExists)
 			return domain.ErrEmailAlreadyExists
 		}
 
 		// any other error from postgres is a generic one
+		tracing.RecordError(span, err)
 		return fmt.Errorf("failed to create user: %w", err)
 	}
 
+	tracing.RecordSuccess(span)
 	return nil
 }
 
 func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, error) {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.GetByID")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("user.id", id))
+	tracing.SetOperationAttributes(span, "GetByID", tracing.OperationTypeRead, tracing.EntityUser)
+
 	query := `
         SELECT id, name, email, password_hash, created_at, updated_at
         FROM users
@@ -88,16 +110,30 @@ func (r *UserRepository) GetByID(ctx context.Context, id string) (*domain.User, 
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			span.SetAttributes(attribute.Bool("user.found", false))
+			tracing.RecordSuccess(span)
 			return nil, domain.ErrUserNotFound
 		}
 
+		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("failed to get user by id: %w", err)
 	}
+
+	span.SetAttributes(
+		attribute.Bool("user.found", true),
+		attribute.String("user.email", user.Email),
+	)
+	tracing.RecordSuccess(span)
 
 	return &user, nil
 }
 
 func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.User, error) {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.GetByEmail")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("user.email", email))
+	tracing.SetOperationAttributes(span, "GetByEmail", tracing.OperationTypeRead, tracing.EntityUser)
 	query := `
         SELECT id, name, email, password_hash, created_at, updated_at
         FROM users
@@ -116,16 +152,32 @@ func (r *UserRepository) GetByEmail(ctx context.Context, email string) (*domain.
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
+			span.SetAttributes(attribute.Bool("user.found", false))
+			// Is not an error is a ok result not found a user
+			tracing.RecordSuccess(span)
 			return nil, domain.ErrUserNotFound
 		}
-
+		//this could be a tech error, from DB conn, etc
+		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
 
+	// 4founded user
+	span.SetAttributes(
+		attribute.Bool("user.found", true),
+		attribute.String("user.id", user.ID),
+	)
+	tracing.RecordSuccess(span)
 	return &user, nil
 }
 
 func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.Update")
+	defer span.End()
+
+	tracing.SetUserAttributes(span, user.ID, user.Email, user.Name)
+	tracing.SetOperationAttributes(span, "Update", tracing.OperationTypeUpdate, tracing.EntityUser)
+
 	query := `
         UPDATE users
         SET name = $2, email = $3, password_hash = $4, updated_at = $5
@@ -142,44 +194,74 @@ func (r *UserRepository) Update(ctx context.Context, user *domain.User) error {
 
 	if err != nil {
 		if isUniqueViolation(err, constraintUsersEmailKey) {
+			span.SetAttributes(attribute.String("error.type", "unique_violation"))
+			tracing.RecordError(span, domain.ErrEmailAlreadyExists)
 			return domain.ErrEmailAlreadyExists
 		}
 
+		tracing.RecordError(span, err)
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
-	// ✅ Verificar que se actualizó al menos 1 fila
-	if result.RowsAffected() == 0 {
+	rowsAffected := result.RowsAffected()
+	span.SetAttributes(attribute.Int64("db.rows_affected", rowsAffected))
+
+	if rowsAffected == 0 {
+		// User not found
+		span.SetAttributes(attribute.Bool("user.found", false))
+		tracing.RecordSuccess(span)
 		return domain.ErrUserNotFound
 	}
+
+	tracing.RecordSuccess(span)
 
 	return nil
 }
 
 func (r *UserRepository) Delete(ctx context.Context, id string) error {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.Delete")
+	defer span.End()
+
+	span.SetAttributes(attribute.String("user.id", id))
+	tracing.SetOperationAttributes(span, "Delete", tracing.OperationTypeDelete, tracing.EntityUser)
+
 	query := `DELETE FROM users WHERE id = $1`
 
 	result, err := r.db.Exec(ctx, query, id)
 	if err != nil {
-		// ❌ No hay errores de dominio específicos para delete
-		// (podrías agregar foreign key violation si es necesario)
+		tracing.RecordError(span, err)
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
 
-	// ✅ Verificar que se eliminó al menos 1 fila
-	if result.RowsAffected() == 0 {
+	rowsAffected := result.RowsAffected()
+	span.SetAttributes(attribute.Int64("db.rows_affected", rowsAffected))
+
+	if rowsAffected == 0 {
+		span.SetAttributes(attribute.Bool("user.found", false))
+		tracing.RecordSuccess(span)
 		return domain.ErrUserNotFound
 	}
 
+	tracing.RecordSuccess(span)
 	return nil
 }
 
 func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*domain.User, error) {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.List")
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.Int("pagination.limit", limit),
+		attribute.Int("pagination.offset", offset),
+	)
+	tracing.SetOperationAttributes(span, "List", tracing.OperationTypeList, tracing.EntityUser)
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
 		r.metrics.DBQueryDuration.Observe(duration.Seconds())
 	}()
+
 	query := `
         SELECT id, name, email, password_hash, created_at, updated_at
         FROM users
@@ -189,7 +271,7 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*domain
 
 	rows, err := r.db.Query(ctx, query, limit, offset)
 	if err != nil {
-		//  Error genérico (no es de dominio)
+		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("failed to list users: %w", err)
 	}
 	defer rows.Close()
@@ -206,26 +288,40 @@ func (r *UserRepository) List(ctx context.Context, limit, offset int) ([]*domain
 			&user.UpdatedAt,
 		)
 		if err != nil {
+			tracing.RecordError(span, err)
 			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, &user)
 	}
 
 	if err := rows.Err(); err != nil {
+		tracing.RecordError(span, err)
 		return nil, fmt.Errorf("error iterating users: %w", err)
 	}
+
+	span.SetAttributes(attribute.Int("result.count", len(users)))
+	tracing.RecordSuccess(span)
 
 	return users, nil
 }
 
 func (r *UserRepository) Count(ctx context.Context) (int64, error) {
+	ctx, span := repoTracer.Start(ctx, "UserRepository.Count")
+	defer span.End()
+
+	tracing.SetOperationAttributes(span, "Count", tracing.OperationTypeCount, tracing.EntityUser)
+
 	query := `SELECT COUNT(*) FROM users`
 
 	var count int64
 	err := r.db.QueryRow(ctx, query).Scan(&count)
 	if err != nil {
+		tracing.RecordError(span, err)
 		return 0, fmt.Errorf("failed to count users: %w", err)
 	}
+
+	span.SetAttributes(attribute.Int64("result.count", count))
+	tracing.RecordSuccess(span)
 
 	return count, nil
 }

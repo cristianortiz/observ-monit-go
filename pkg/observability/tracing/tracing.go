@@ -10,19 +10,17 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
-	"google.golang.org/grpc"
 )
 
 type TracingConfig struct {
 	ServiceName    string
 	ServiceVersion string
 	Environment    string
-	OTLPEndpoint   string // OTLP gRPC endpoint (e.g., "localhost:4317")
+	OTLPEndpoint   string
 	Enabled        bool
 }
 
 // InitTracing initializes OpenTelemetry tracing with OTLP gRPC exporter
-// Uses gRPC protocol which is the recommended approach for production
 func InitTracing(config TracingConfig) (func(context.Context) error, error) {
 	if !config.Enabled {
 		return func(context.Context) error { return nil }, nil
@@ -33,8 +31,7 @@ func InitTracing(config TracingConfig) (func(context.Context) error, error) {
 	// Configure OTLP gRPC exporter
 	exporter, err := otlptracegrpc.New(ctx,
 		otlptracegrpc.WithEndpoint(config.OTLPEndpoint),
-		otlptracegrpc.WithInsecure(),                   // Use WithTLSCredentials for production
-		otlptracegrpc.WithDialOption(grpc.WithBlock()), // Wait for connection
+		otlptracegrpc.WithInsecure(), // Use WithTLSCredentials for production
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OTLP gRPC trace exporter: %w", err)

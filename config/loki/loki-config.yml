@@ -1,0 +1,107 @@
+# Loki Configuration File
+# Esta es la configuración principal de Loki para el proyecto observ-monit-go
+# Loki es un sistema de agregación de logs diseñado para ser rentable y fácil de operar
+
+# =============================================================================
+# SERVER CONFIG - Configuración del servidor HTTP y gRPC
+# =============================================================================
+server:
+  http_listen_port: 3100           # Puerto para API HTTP (queries, push, health)
+  grpc_listen_port: 9096           # Puerto para gRPC (usado internamente)
+  log_level: info                  # Nivel de log: debug, info, warn, error
+
+# =============================================================================
+# AUTH - Autenticación (deshabilitada para desarrollo local)
+# =============================================================================
+auth_enabled: false                # No requiere autenticación en desarrollo
+
+# =============================================================================
+# INGESTER - Componente que procesa y almacena logs entrantes
+# =============================================================================
+ingester:
+  # Lifecycle: Define cómo los chunks son creados y flusheados
+  lifecycler:
+    address: 127.0.0.1             # Dirección del ingester
+    ring:
+      kvstore:
+        store: inmemory            # Almacén en memoria (para desarrollo)
+      replication_factor: 1        # Sin replicación (suficiente para desarrollo)
+    final_sleep: 0s                # Sin delay al apagar (para testing rápido)
+  
+  # WAL (Write-Ahead Log): Log de escritura para durabilidad
+  wal:
+    enabled: true
+    dir: /loki/wal                 # Directorio para WAL (dentro del volumen montado)
+  
+  # Chunks: Bloques de logs comprimidos antes de almacenar
+  chunk_idle_period: 1h            # Tiempo máximo que un chunk puede estar inactivo
+  max_chunk_age: 1h                # Edad máxima de un chunk antes de flush
+  chunk_target_size: 1048576       # Tamaño objetivo del chunk (1MB)
+  chunk_retain_period: 30s         # Tiempo que retiene chunks en memoria después de flush
+  max_transfer_retries: 0          # Sin reintentos de transferencia (desarrollo)
+
+# =============================================================================
+# SCHEMA CONFIG - Define cómo se indexan y almacenan los logs
+# =============================================================================
+schema_config:
+  configs:
+    - from: 2020-10-24             # Fecha de inicio del schema (cualquier fecha pasada)
+      store: boltdb-shipper        # Index store: BoltDB local con soporte para Object Storage
+      object_store: filesystem     # Almacenamiento de chunks: filesystem local
+      schema: v11                  # Versión del schema (v11 es estable y recomendado)
+      index:
+        prefix: index_             # Prefijo para archivos de índice
+        period: 24h                # Período de rotación del índice (diario)
+
+# =============================================================================
+# STORAGE CONFIG - Configuración de almacenamiento físico
+# =============================================================================
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active    # Índices activos (escritura)
+    cache_location: /loki/boltdb-shipper-cache             # Cache de índices
+    cache_ttl: 24h                                         # TTL del cache
+    shared_store: filesystem                               # Store compartido: filesystem
+  
+  filesystem:
+    directory: /loki/chunks        # Directorio donde se almacenan los chunks de logs
+
+# =============================================================================
+# COMPACTOR - Compacta y deduplica índices antiguos
+# =============================================================================
+compactor:
+  working_directory: /loki/boltdb-shipper-compactor    # Directorio de trabajo del compactor
+  shared_store: filesystem                              # Usa mismo store que storage_config
+  compaction_interval: 10m                              # Cada cuánto compactar (10 minutos)
+
+# =============================================================================
+# LIMITS CONFIG - Límites de ingesta y query para evitar sobrecarga
+# =============================================================================
+limits_config:
+  # Ingestion limits (entrada de logs)
+  reject_old_samples: true         # Rechaza logs con timestamps muy antiguos
+  reject_old_samples_max_age: 168h # Rechaza logs más antiguos que 7 días
+  ingestion_rate_mb: 4             # Límite de ingesta: 4MB/sec por tenant
+  ingestion_burst_size_mb: 6       # Burst size: 6MB (para picos temporales)
+  
+  # Query limits (consultas)
+  max_query_series: 100000         # Máximo de series en una query
+  max_query_lookback: 0            # Sin límite de lookback (puede consultar cualquier período)
+  
+  # Cardinality limits (previene explosión de labels)
+  max_streams_per_user: 10000      # Máximo de streams (combinaciones únicas de labels) por usuario
+  max_global_streams_per_user: 50000   # Límite global de streams
+
+# =============================================================================
+# CHUNK STORE CONFIG - Configuración del almacén de chunks
+# =============================================================================
+chunk_store_config:
+  max_look_back_period: 0s         # Sin límite para lookback queries (desarrollo)
+
+# =============================================================================
+# TABLE MANAGER - Gestiona la creación y retención de tablas de índice
+# =============================================================================
+table_manager:
+  retention_deletes_enabled: true  # Habilita eliminación automática por retención
+  retention_period: 168h           # Retiene logs por 7 días (168 horas)
+                                   # Ajusta según tus necesidades: 720h = 30 días

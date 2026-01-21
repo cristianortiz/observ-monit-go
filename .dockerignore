@@ -1,0 +1,82 @@
+# Ignorar archivos innecesarios para reducir contexto de build y mejorar velocidad
+
+# Binarios
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+factorit
+monolito
+
+# Archivos de test
+*_test.go
+*.test
+*.out
+coverage.txt
+*.coverprofile
+
+# Directorios de vendor (si usas go modules no es necesario)
+vendor/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentación
+*.md
+docs/
+README.md
+PROJECT_PLAN.md
+
+# Docker
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Datos locales y logs
+*.log
+*.db
+*.sqlite
+data/
+tmp/
+logs/
+
+# Configuraciones locales de desarrollo
+.env
+.env.local
+.env.*.local
+
+# Archivos de migración (ya están en /migrations en el contenedor)
+migrations/
+
+# Scripts
+scripts/
+
+# Configuraciones de infraestructura (no necesarias en runtime)
+config/grafana/
+config/loki/
+config/postgres/
+config/postgres-exporter/
+config/prometheus/
+config/promtail/
+
+# Volúmenes de Docker
+postgres_data/
+loki-data/
+promtail-data/

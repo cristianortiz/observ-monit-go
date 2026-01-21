@@ -1,4 +1,33 @@
 services:
+  # ============================================
+  # FACTORIT API - Aplicación Go
+  # ============================================
+  factorit:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: factorit-app
+    restart: unless-stopped
+    ports:
+      - "${SERVICE_PORT:-8080}:8080"  # Puerto de la API
+    env_file:
+      - .env  # Cargar variables desde archivo .env
+    networks:
+      - factorit-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
+      loki:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   postgres:
     image: postgres:16-alpine
     container_name: factorit-postgres
@@ -34,11 +63,14 @@ services:
     container_name: factorit-grafana
     ports:
       - "3000:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-    # Sin volúmenes ni provisioning - configuración manual
+    env_file:
+      - .env  # Cargar GF_SECURITY_ADMIN_PASSWORD desde .env
+    volumes:
+      # Persistencia de dashboards, datasources, plugins, etc.
+      - grafana-data:/var/lib/grafana
     networks:
       - factorit-network
+    restart: unless-stopped
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:latest
     container_name: factorit-postgres-exporter
@@ -57,7 +89,7 @@ services:
     restart: unless-stopped
     ports:
       - "16686:16686"  # Jaeger UI
-      - "4318:4318"    # OTLP HTTP receiver (recommended)
+      - "4318:4318"    # OTLP HTTP receiver
       - "4317:4317"    # OTLP gRPC receiver
     environment:
       - COLLECTOR_OTLP_ENABLED=true  # Enable OpenTelemetry Protocol
@@ -65,9 +97,98 @@ services:
     networks:
       - factorit-network
 
+  # ============================================
+  # OTEL COLLECTOR - Central Telemetry Hub
+  # ============================================
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.91.0
+    container_name: factorit-otel-collector
+    restart: unless-stopped
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./config/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      # OTLP receivers (para recibir telemetría de la app)
+      - "4319:4317"    # OTLP gRPC receiver (puerto externo 4319 → interno 4317)
+      - "4320:4318"    # OTLP HTTP receiver (puerto externo 4320 → interno 4318)
+      # Prometheus metrics endpoint (Prometheus hará scraping aquí)
+      - "8889:8889"    # Prometheus exporter
+      # Self-monitoring endpoints
+      - "8888:8888"    # Collector self-metrics
+      - "13133:13133"  # Health check
+      - "55679:55679"  # zpages (debug UI)
+      - "1777:1777"    # pprof (profiling)
+    networks:
+      - factorit-network
+    depends_on:
+      - jaeger
+      - loki
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # LOKI - Log Aggregation System
+  # ============================================
+  loki:
+    image: grafana/loki:2.9.3
+    container_name: loki
+    ports:
+      - "3100:3100"  # API HTTP para recibir logs y queries
+    volumes:
+      # Montar configuración
+      - ./config/loki/loki-config.yml:/etc/loki/local-config.yaml:ro
+      # Volumen para persistencia de logs
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - factorit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ============================================
+  # PROMTAIL - REMOVIDO ❌
+  # ============================================
+  # Los logs ahora fluyen vía OTEL Collector:
+  # App (Zap + OTEL Bridge) → OTEL Collector → Loki
+  # 
+  # Si necesitas logs de otros containers (postgres, nginx, etc),
+  # puedes descomentar este servicio.
+  #
+  # promtail:
+  #   image: grafana/promtail:2.9.3
+  #   container_name: promtail
+  #   volumes:
+  #     - ./config/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - promtail-data:/tmp
+  #   command: -config.file=/etc/promtail/config.yml
+  #   networks:
+  #     - factorit-network
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - loki
+
+
+
 volumes:
   postgres_data:
     driver: local
+
+  grafana-data:
+    driver: local
+
+  loki-data:
+    driver: local
+
+  # promtail-data:  # ❌ No necesario - Promtail removido
+  #   driver: local
 
 networks:
   factorit-network:

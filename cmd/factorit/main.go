@@ -18,6 +18,8 @@ import (
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/health"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/logger"
 	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/tracing"
+	"github.com/gofiber/contrib/otelfiber/v2"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"go.uber.org/zap"
@@ -33,13 +35,30 @@ func main() {
 	}
 
 	// ========================================
-	// 2. INITIALIZE LOGGER
+	// 2. INITIALIZE LOGGER (CON OTEL BRIDGE)
 	// ========================================
-	log, err := logger.New(cfg.Observability.LogLevel, cfg.Debug)
+	ctx := context.Background()
+	log, shutdownLogger, err := logger.NewOTELLogger(ctx, logger.OTELLoggerConfig{
+		ServiceName:    cfg.Service.Name,
+		ServiceVersion: "1.0.0",
+		Environment:    cfg.Environment,
+		OTLPEndpoint:   cfg.Observability.Logging.OTLPEndpoint,
+		LogLevel:       cfg.Observability.LogLevel,
+		Enabled:        cfg.Observability.Logging.Enabled,
+	})
 	if err != nil {
-		panic("failed to create logger: " + err.Error())
+		panic("failed to create OTEL logger: " + err.Error())
 	}
 	defer log.Sync()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownLogger(shutdownCtx); err != nil {
+			// Usar fmt.Println aquí porque el logger puede no estar disponible
+			fmt.Printf("failed to shutdown logger: %v\n", err)
+		}
+	}()
+
 	//Init Validator
 	middleware.InitValidator()
 	log.Info("Validator initialized")
@@ -50,10 +69,70 @@ func main() {
 		zap.Int("port", cfg.Service.Port),
 	)
 
+	log.Info("OTEL Logger initialized",
+		zap.String("service", cfg.Service.Name),
+		zap.String("otlp_endpoint", cfg.Observability.Logging.OTLPEndpoint),
+		zap.Bool("otel_enabled", cfg.Observability.Logging.Enabled),
+		zap.String("log_level", cfg.Observability.LogLevel),
+	)
+
+	// ========================================
+	// 2.5 INITIALIZE TRACING
+	// ========================================
+	shutdown, err := tracing.InitTracing(tracing.TracingConfig{
+		ServiceName:    cfg.Observability.Tracing.ServiceName,
+		ServiceVersion: cfg.Observability.Tracing.ServiceVersion,
+		Environment:    cfg.Observability.Tracing.Environment,
+		OTLPEndpoint:   cfg.Observability.Tracing.OTLPEndpoint,
+		Enabled:        cfg.Observability.Tracing.Enabled,
+	})
+	if err != nil {
+		log.Fatal("failed to initialize tracing", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdown(shutdownCtx); err != nil {
+			log.Error("failed to shutdown tracer", zap.Error(err))
+		}
+	}()
+
+	log.Info("Distributed tracing initialized",
+		zap.String("service", cfg.Observability.Tracing.ServiceName),
+		zap.String("endpoint", cfg.Observability.Tracing.OTLPEndpoint),
+		zap.Bool("enabled", cfg.Observability.Tracing.Enabled),
+	)
+
+	// ========================================
+	// 2.6 INITIALIZE OTEL METRICS
+	// ========================================
+	otelMetrics, shutdownMetrics, err := metrics.NewOTELMetrics(context.Background(), metrics.OTELMetricsConfig{
+		ServiceName:    cfg.Service.Name,
+		ServiceVersion: "1.0.0",
+		Environment:    cfg.Environment,
+		OTLPEndpoint:   cfg.Observability.Tracing.OTLPEndpoint, // Mismo endpoint que tracing
+		Enabled:        cfg.Observability.MetricsEnabled,
+	})
+	if err != nil {
+		log.Fatal("failed to initialize OTEL metrics", zap.Error(err))
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownMetrics(shutdownCtx); err != nil {
+			log.Error("failed to shutdown OTEL metrics", zap.Error(err))
+		}
+	}()
+
+	log.Info("OTEL Metrics initialized",
+		zap.String("service", cfg.Service.Name),
+		zap.String("endpoint", cfg.Observability.Tracing.OTLPEndpoint),
+		zap.Bool("enabled", cfg.Observability.MetricsEnabled),
+	)
+
 	// ========================================
 	// 3. INITIALIZE DATABASE
 	// ========================================
-	ctx := context.Background()
 	db, err := database.NewPostgresDB(ctx, cfg, log.Logger)
 	if err != nil {
 		log.Fatal("failed to initialize database", zap.Error(err))
@@ -74,8 +153,8 @@ func main() {
 	healthHandler := health.NewHandler(healthSystem, log)
 
 	// Metrics System
-	metricsSystem := metrics.New(cfg.Service.Name)
-	metricsHandler := metrics.NewHandler(metricsSystem)
+	// metricsSystem := metrics.New(cfg.Service.Name)
+	// metricsHandler := metrics.NewHandler(metricsSystem)
 
 	userMetrics := metrics.NewUserMetrics(cfg.Service.Name)
 
@@ -91,7 +170,7 @@ func main() {
 	// Dependency Injection: Repository → Service → Handler
 	userRepository := postgres.NewUserRepository(db.Pool, userMetrics)
 	userService := usecase.NewUserService(userRepository)
-	userHandler := http.NewUserHandler(userService, userMetrics)
+	userHandler := http.NewUserHandler(userService, userMetrics, log)
 
 	log.Info("Users module initialized",
 		zap.String("repository", "postgres"),
@@ -104,15 +183,33 @@ func main() {
 	// ========================================
 	app := fiber.New(fiber.Config{
 		AppName:      "Factorit Platform v1.0.0",
-		ErrorHandler: customErrorHandler(log, metricsSystem, cfg.Service.Name),
+		ErrorHandler: customErrorHandler(log, otelMetrics, cfg.Service.Name),
 	})
 
 	// Global Middlewares
 	app.Use(recover.New())
-	app.Use(metrics.Middleware(metrics.MetricsConfig{
+
+	// Tracing middleware (BEFORE metrics to capture full request)
+	if cfg.Observability.Tracing.Enabled {
+		app.Use(otelfiber.Middleware(
+			otelfiber.WithSpanNameFormatter(func(ctx *fiber.Ctx) string {
+				return fmt.Sprintf("%s %s", ctx.Method(), ctx.Route().Path)
+			}),
+		))
+		log.Info("Tracing middleware enabled (official otelfiber)",
+			zap.String("service", cfg.Observability.Tracing.ServiceName),
+		)
+	}
+
+	// Metrics middleware (OTEL)
+	app.Use(metrics.OTELMiddleware(metrics.OTELMiddlewareConfig{
 		ServiceName: cfg.Service.Name,
-		Metrics:     metricsSystem,
+		Metrics:     otelMetrics,
 	}))
+
+	log.Info("OTEL Metrics middleware enabled",
+		zap.String("service", cfg.Service.Name),
+	)
 
 	// ========================================
 	// 7. REGISTER OBSERVABILITY ROUTES
@@ -122,12 +219,10 @@ func main() {
 		cfg.Observability.HealthPath,
 		cfg.Observability.ReadyPath,
 	)
-	metricsHandler.RegisterRoutes(app)
 
 	log.Info("Observability routes registered",
 		zap.String("health", cfg.Observability.HealthPath),
 		zap.String("ready", cfg.Observability.ReadyPath),
-		zap.String("metrics", "/metrics"),
 	)
 
 	// ========================================
@@ -140,7 +235,7 @@ func main() {
 	)
 
 	// ✅ USERS MODULE ROUTES
-	http.RegisterRoutes(app, userHandler, apiBasePath)
+	http.RegisterRoutes(app, userHandler, cfg, apiBasePath)
 
 	log.Info("Users module routes registered",
 		zap.String("prefix", apiBasePath+"/users"),
@@ -213,13 +308,16 @@ func main() {
 }
 
 // customErrorHandler handles errors globally
-func customErrorHandler(log *logger.Logger, metrics *metrics.Metrics, serviceName string) fiber.ErrorHandler {
+func customErrorHandler(log *logger.Logger, otelMetrics *metrics.OTELMetrics, serviceName string) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		code := fiber.StatusInternalServerError
 
 		if e, ok := err.(*fiber.Error); ok {
 			code = e.Code
 		}
+
+		// IMPORTANTE: Obtener context de Fiber para OTEL
+		ctx := c.UserContext()
 
 		//Register metrics for errors, especially 404s from catch-all
 		method := c.Method()
@@ -228,9 +326,9 @@ func customErrorHandler(log *logger.Logger, metrics *metrics.Metrics, serviceNam
 
 		// Record error metrics based on status code
 		if code >= 400 && code < 500 {
-			metrics.RecordHTTPClientError(serviceName, method, path, status)
+			otelMetrics.RecordHTTPClientError(ctx, serviceName, method, path, status)
 		} else if code >= 500 {
-			metrics.RecordHTTPServerError(serviceName, method, path, status)
+			otelMetrics.RecordHTTPServerError(ctx, serviceName, method, path, status)
 		}
 
 		log.Error("HTTP error",

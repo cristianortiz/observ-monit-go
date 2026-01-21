@@ -1,0 +1,97 @@
+# Configuración de Promtail para recolección de logs
+# Documentación: https://grafana.com/docs/loki/latest/clients/promtail/configuration/
+
+# Configuración del servidor HTTP
+server:
+  http_listen_port: 9080  # Puerto para métricas y healthcheck
+  grpc_listen_port: 0     # Deshabilitado (no necesitamos gRPC server)
+
+# Configuración de posiciones (checkpoint de dónde va leyendo)
+positions:
+  filename: /tmp/positions.yaml  # Archivo que guarda última posición leída
+
+# Cliente de Loki (dónde enviar los logs)
+clients:
+  - url: http://loki:3100/loki/api/v1/push  # URL del servidor Loki
+    # Configuración de batching para eficiencia
+    batchwait: 1s      # Esperar 1 segundo antes de enviar batch
+    batchsize: 1048576 # Tamaño máximo del batch (1MB)
+    
+    # Configuración de retries
+    backoff_config:
+      min_period: 500ms    # Tiempo mínimo entre retries
+      max_period: 5m       # Tiempo máximo entre retries
+      max_retries: 10      # Número máximo de reintentos
+    
+    # Timeout de requests
+    timeout: 10s
+
+# Configuración de scraping (de dónde leer logs)
+scrape_configs:
+  # Job para leer logs de contenedores Docker
+  - job_name: docker
+    
+    # Configuración de Docker service discovery
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock  # Socket de Docker
+        refresh_interval: 5s               # Frecuencia de actualización
+        #filters:
+         # - name: label
+         #   values: ["logging=promtail"]   # Solo contenedores con este label
+    
+    # Procesamiento de labels antesd de enviar a loki
+    relabel_configs:
+      # 1. Extraer nombre del contenedor
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'  # Remover el / inicial del nombre
+        target_label: 'container'
+      
+      # 2. Extraer nombre de la imagen
+      - source_labels: ['__meta_docker_container_image']
+        target_label: 'image'
+      
+      # 3. Agregar label de job
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'job'
+      
+      # 4. Agregar label de service (nombre del servicio en docker-compose)
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: 'service'
+    
+    # Pipeline de procesamiento secuencial de logs
+    pipeline_stages:
+      # 0. Drop non-JSON lines (como "service name: FACTORIT_PORT")
+      - match:
+          selector: '{job="factorit"}'
+          stages:
+            - drop:
+                expression: '^[^{].*$'  # Drop líneas que no empiezan con {
+      
+      # 1. Parsear JSON (nuestros logs de Zap están en JSON)
+      - json:
+          expressions:
+            level: level           # Extraer campo "level" (lowercase: info, error)
+            message: message       # Extraer campo "message"
+            timestamp: timestamp   # Extraer campo "timestamp" (Unix epoch)
+            trace_id: trace_id     # Extraer campo "trace_id" (para correlación con Jaeger)
+            span_id: span_id       # Extraer campo "span_id"
+            caller: caller         # Extraer campo "caller" (file.go:line)
+          source: message          # IMPORTANTE: parsear el mensaje completo
+      
+      # 2. Convertir level a label (para poder filtrar)
+      # IMPORTANTE: Solo campos de BAJA cardinalidad (pocos valores únicos)
+      - labels:
+          level:     # Label: level="info" | level="error" (solo 5 valores posibles)
+          # trace_id NO como label (cardinalidad infinita, rompe Loki)
+          # span_id NO como label (cardinalidad infinita)
+      
+      # 3. Usar timestamp del log (en lugar de tiempo de ingesta)
+      # Zap production config usa Unix epoch como float
+      - timestamp:
+          source: timestamp
+          format: Unix  # Timestamp en formato Unix epoch (segundos desde 1970)
+      
+      # 4. Reemplazar el mensaje con el campo "msg"
+      # El resto de campos (trace_id, span_id, caller, error, etc) quedan en el JSON
+      - output:
+          source: message

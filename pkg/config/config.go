@@ -45,12 +45,14 @@ type DatabaseConfig struct {
 }
 
 type ObservabilityConfig struct {
-	LogLevel    string
-	LogFormat   string // json o console
-	MetricsPath string
-	HealthPath  string
-	ReadyPath   string
-	Tracing     TracingConfig
+	LogLevel       string
+	LogFormat      string // json o console
+	MetricsPath    string
+	HealthPath     string
+	ReadyPath      string
+	MetricsEnabled bool
+	Tracing        TracingConfig
+	Logging        LoggingConfig // 🆕 Configuración de logs OTEL
 }
 
 type TracingConfig struct {
@@ -61,8 +63,22 @@ type TracingConfig struct {
 	Environment    string
 }
 
+// LoggingConfig configuración para enviar logs a OTEL Collector
+type LoggingConfig struct {
+	Enabled        bool   // Si está habilitado el envío a OTEL (false = solo console)
+	ServiceName    string // Nombre del servicio (reutiliza del servicio principal)
+	ServiceVersion string // Versión del servicio
+	OTLPEndpoint   string // Endpoint del Collector (mismo que tracing)
+	Environment    string // Entorno (development, staging, production)
+}
+
 type SecurityConfig struct {
-	JWTSecret string
+	JWTSecret string // Legacy (deprecated)
+	// Auth0 OAuth 2.0
+	AuthEnabled  bool
+	AuthJWKSUrl  string
+	AuthAudience string
+	AuthIssuer   string
 }
 
 // Load reads configuration from environment variables
@@ -89,11 +105,13 @@ func Load(serviceName string) (*Config, error) {
 			HealthCheckInterval: getEnvDuration("DB_HEALTH_CHECK_INTERVAL", 1*time.Minute),
 		},
 		Observability: ObservabilityConfig{
-			LogLevel:    getEnv("LOG_LEVEL", "info"),
-			LogFormat:   getEnv("LOG_FORMAT", "json"),
-			MetricsPath: getEnv("METRICS_PATH", "/metrics"),
-			HealthPath:  getEnv("HEALTH_PATH", "/health"),
-			ReadyPath:   getEnv("READY_PATH", "/ready"),
+			LogLevel:       getEnv("LOG_LEVEL", "info"),
+			LogFormat:      getEnv("LOG_FORMAT", "json"),
+			MetricsPath:    getEnv("METRICS_PATH", "/metrics"),
+			HealthPath:     getEnv("HEALTH_PATH", "/health"),
+			ReadyPath:      getEnv("READY_PATH", "/ready"),
+			MetricsEnabled: getEnvBool("METRICS_ENABLED", true),
+
 			Tracing: TracingConfig{
 				Enabled:        getEnvBool("TRACING_ENABLED", true),
 				ServiceName:    getEnv("TRACING_SERVICE_NAME", serviceName),
@@ -101,9 +119,23 @@ func Load(serviceName string) (*Config, error) {
 				OTLPEndpoint:   getEnv("TRACING_OTLP_ENDPOINT", "localhost:4317"),
 				Environment:    getEnv("TRACING_ENVIRONMENT", "development"),
 			},
+
+			// 🆕 Configuración de Logs OTEL
+			// Por defecto reutiliza los mismos valores que Tracing (mismo Collector)
+			Logging: LoggingConfig{
+				Enabled:        getEnvBool("LOGGING_OTEL_ENABLED", true), // false = solo console
+				ServiceName:    getEnv("LOGGING_SERVICE_NAME", serviceName),
+				ServiceVersion: getEnv("LOGGING_SERVICE_VERSION", "1.0.0"),
+				OTLPEndpoint:   getEnv("LOGGING_OTLP_ENDPOINT", "localhost:4317"), // Mismo Collector
+				Environment:    getEnv("LOGGING_ENVIRONMENT", "development"),
+			},
 		},
 		Security: SecurityConfig{
-			JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
+			JWTSecret:    getEnv("JWT_SECRET", "change-me-in-production"),
+			AuthEnabled:  getEnvBool("AUTH_ENABLED", false),
+			AuthJWKSUrl:  getEnv("AUTH_JWKS_URL", ""),
+			AuthAudience: getEnv("AUTH_AUDIENCE", ""),
+			AuthIssuer:   getEnv("AUTH_ISSUER", ""),
 		},
 		API: ApiConfig{
 			BasePath: getEnv("API_BASE_PATH", "/api/v1"),
@@ -112,7 +144,7 @@ func Load(serviceName string) (*Config, error) {
 
 	// Service-specific port override
 	servicePortEnv := strings.ToUpper(strings.ReplaceAll(serviceName, "-", "_")) + "_PORT"
-	println("service name:", servicePortEnv)
+	// Note: removed println to avoid non-JSON logs that break Loki parsing
 	if port := os.Getenv(servicePortEnv); port != "" {
 		if p, err := strconv.Atoi(port); err == nil {
 			config.Service.Port = p
