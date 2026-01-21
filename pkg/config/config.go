@@ -52,6 +52,7 @@ type ObservabilityConfig struct {
 	ReadyPath      string
 	MetricsEnabled bool
 	Tracing        TracingConfig
+	Logging        LoggingConfig // 🆕 Configuración de logs OTEL
 }
 
 type TracingConfig struct {
@@ -62,8 +63,22 @@ type TracingConfig struct {
 	Environment    string
 }
 
+// LoggingConfig configuración para enviar logs a OTEL Collector
+type LoggingConfig struct {
+	Enabled        bool   // Si está habilitado el envío a OTEL (false = solo console)
+	ServiceName    string // Nombre del servicio (reutiliza del servicio principal)
+	ServiceVersion string // Versión del servicio
+	OTLPEndpoint   string // Endpoint del Collector (mismo que tracing)
+	Environment    string // Entorno (development, staging, production)
+}
+
 type SecurityConfig struct {
-	JWTSecret string
+	JWTSecret string // Legacy (deprecated)
+	// Auth0 OAuth 2.0
+	AuthEnabled  bool
+	AuthJWKSUrl  string
+	AuthAudience string
+	AuthIssuer   string
 }
 
 // Load reads configuration from environment variables
@@ -104,9 +119,23 @@ func Load(serviceName string) (*Config, error) {
 				OTLPEndpoint:   getEnv("TRACING_OTLP_ENDPOINT", "localhost:4317"),
 				Environment:    getEnv("TRACING_ENVIRONMENT", "development"),
 			},
+
+			// 🆕 Configuración de Logs OTEL
+			// Por defecto reutiliza los mismos valores que Tracing (mismo Collector)
+			Logging: LoggingConfig{
+				Enabled:        getEnvBool("LOGGING_OTEL_ENABLED", true), // false = solo console
+				ServiceName:    getEnv("LOGGING_SERVICE_NAME", serviceName),
+				ServiceVersion: getEnv("LOGGING_SERVICE_VERSION", "1.0.0"),
+				OTLPEndpoint:   getEnv("LOGGING_OTLP_ENDPOINT", "localhost:4317"), // Mismo Collector
+				Environment:    getEnv("LOGGING_ENVIRONMENT", "development"),
+			},
 		},
 		Security: SecurityConfig{
-			JWTSecret: getEnv("JWT_SECRET", "change-me-in-production"),
+			JWTSecret:    getEnv("JWT_SECRET", "change-me-in-production"),
+			AuthEnabled:  getEnvBool("AUTH_ENABLED", false),
+			AuthJWKSUrl:  getEnv("AUTH_JWKS_URL", ""),
+			AuthAudience: getEnv("AUTH_AUDIENCE", ""),
+			AuthIssuer:   getEnv("AUTH_ISSUER", ""),
 		},
 		API: ApiConfig{
 			BasePath: getEnv("API_BASE_PATH", "/api/v1"),

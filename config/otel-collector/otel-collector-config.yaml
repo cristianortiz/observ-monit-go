@@ -39,6 +39,13 @@ processors:
       - key: deployment.environment
         value: development
         action: insert
+      # HINT para Loki exporter: convertir service.name a label
+      - key: loki.resource.labels
+        value: service.name, deployment.environment
+        action: insert
+
+  # Attributes processor: NO NECESARIO - eliminado
+  # El hint loki.resource.labels hace el trabajo directamente
 
 # ============================================
 # EXPORTERS: A dónde envía telemetría
@@ -59,6 +66,13 @@ exporters:
   # Loki exporter - Envía logs a Loki
   loki:
     endpoint: http://loki:3100/loki/api/v1/push
+    # Labels por defecto habilitados (exporter, job, instance, level)
+    # + service.name y deployment.environment (via loki.resource.labels hint en processor)
+    default_labels_enabled:
+      exporter: true
+      job: true
+      instance: true
+      level: true
 
   # Debug exporter - Para development, imprime en logs del Collector
   debug:
@@ -104,7 +118,7 @@ service:
     # Pipeline de logs: App → OTLP receiver → processors → Loki
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, resource, batch]
       exporters: [loki, debug]
 
   # Telemetría del propio Collector (self-monitoring)

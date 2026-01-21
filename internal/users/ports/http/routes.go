@@ -2,16 +2,20 @@ package http
 
 import (
 	"github.com/cristianortiz/observ-monit-go/internal/users/ports/http/dto"
+	"github.com/cristianortiz/observ-monit-go/pkg/config"
 	"github.com/cristianortiz/observ-monit-go/pkg/http-utils/middleware"
 	"github.com/gofiber/fiber/v2"
 )
 
-// RegisterRoutes registers all user routes
-func RegisterRoutes(app *fiber.App, handler *UserHandler, basePath string) {
+// RegisterRoutes registers all user routes with authentication
+func RegisterRoutes(app *fiber.App, handler *UserHandler, cfg *config.Config, basePath string) {
 	api := app.Group(basePath)
 	users := api.Group("/users")
 
-	// CRUD operations
+	//  Aplicar autenticación a TODAS las rutas de usuarios
+	users.Use(middleware.RequireAuth(cfg))
+
+	// CRUD operations (todas protegidas por JWT)
 	users.Post("/",
 		middleware.ValidateBody[dto.CreateUserRequestDto](),
 		handler.CreateUser,
@@ -32,7 +36,9 @@ func RegisterRoutes(app *fiber.App, handler *UserHandler, basePath string) {
 		handler.UpdateUser,
 	)
 
+	// DELETE requiere permiso específico (solo usuarios con scope delete:users)
 	users.Delete("/:id",
+		middleware.RequirePermission("delete:users"),
 		middleware.ValidateParam("id", "uuid"),
 		handler.DeleteUser,
 	)

@@ -153,24 +153,27 @@ services:
       retries: 5
 
   # ============================================
-  # PROMTAIL - Log Shipper (envía logs a Loki)
+  # PROMTAIL - REMOVIDO ❌
   # ============================================
-  promtail:
-    image: grafana/promtail:2.9.3
-    container_name: promtail
-    volumes:
-      # Montar configuración
-      - ./config/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
-      # Montar socket de Docker para leer logs de contenedores
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      # Volumen para guardar posiciones (checkpoint)
-      - promtail-data:/tmp
-    command: -config.file=/etc/promtail/config.yml
-    networks:
-      - factorit-network
-    restart: unless-stopped
-    depends_on:
-      - loki
+  # Los logs ahora fluyen vía OTEL Collector:
+  # App (Zap + OTEL Bridge) → OTEL Collector → Loki
+  # 
+  # Si necesitas logs de otros containers (postgres, nginx, etc),
+  # puedes descomentar este servicio.
+  #
+  # promtail:
+  #   image: grafana/promtail:2.9.3
+  #   container_name: promtail
+  #   volumes:
+  #     - ./config/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+  #     - /var/run/docker.sock:/var/run/docker.sock:ro
+  #     - promtail-data:/tmp
+  #   command: -config.file=/etc/promtail/config.yml
+  #   networks:
+  #     - factorit-network
+  #   restart: unless-stopped
+  #   depends_on:
+  #     - loki
 
 
 
@@ -184,8 +187,8 @@ volumes:
   loki-data:
     driver: local
 
-  promtail-data:
-    driver: local
+  # promtail-data:  # ❌ No necesario - Promtail removido
+  #   driver: local
 
 networks:
   factorit-network:

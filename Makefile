@@ -76,21 +76,21 @@ logs-app: ## Show logs from factorit app only
 logs-loki: ## Show Loki logs
 	docker-compose logs -f loki
 
-.PHONY: logs-promtail
-logs-promtail: ## Show Promtail logs
-	docker-compose logs -f promtail
+.PHONY: logs-otel
+logs-otel: ## Show OTEL Collector logs
+	docker-compose logs -f otel-collector
 
 .PHONY: infra-up
 infra-up: ## Start only infrastructure (without factorit app)
 	@echo "🚀 Starting infrastructure services..."
-	docker-compose up -d postgres prometheus grafana postgres-exporter jaeger loki promtail
+	docker-compose up -d postgres prometheus grafana postgres-exporter jaeger loki otel-collector
 	@echo "⏳ Waiting for services to be ready..."
 	@sleep 3
 	@echo "✅ Infrastructure ready!"
 
 .PHONY: infra-down
 infra-down: ## Stop only infrastructure
-	docker-compose stop postgres prometheus grafana postgres-exporter jaeger loki promtail
+	docker-compose stop postgres prometheus grafana postgres-exporter jaeger loki otel-collector
 
 .PHONY: db-logs
 db-logs: ## Show PostgreSQL logs

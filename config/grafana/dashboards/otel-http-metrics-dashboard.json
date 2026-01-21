@@ -85,7 +85,7 @@
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "short"
         }
       },
       "gridPos": {
@@ -113,12 +113,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(factorit_http_server_request_count_total{job=\"factorit-via-otel-collector\"}[1m])) by (http_route, http_status_code)",
+          "expr": "sum(increase(factorit_http_server_request_count_total{job=\"factorit-via-otel-collector\"}[$__interval])) by (http_route, http_status_code)",
           "legendFormat": "{{http_route}} [{{http_status_code}}]",
           "refId": "A"
         }
       ],
-      "title": "🚀 Request Rate by Route (req/s)",
+      "title": "🚀 Requests by Route (in time window)",
       "type": "timeseries"
     },
     {
@@ -431,12 +431,12 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(factorit_http_server_request_count_total{job=\"factorit-via-otel-collector\"}[1m])) by (http_status_code)",
+          "expr": "sum(increase(factorit_http_server_request_count_total{job=\"factorit-via-otel-collector\"}[$__interval])) by (http_status_code)",
           "legendFormat": "{{http_status_code}}",
           "refId": "A"
         }
       ],
-      "title": "📊 Status Codes Distribution (req/s)",
+      "title": "📊 Status Codes Distribution (count)",
       "type": "timeseries"
     },
     {
