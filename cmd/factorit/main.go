@@ -189,7 +189,7 @@ func main() {
 	// Global Middlewares
 	app.Use(recover.New())
 
-	// Tracing middleware (BEFORE metrics to capture full request)
+	// Tracing middleware (MUST be before logger injection)
 	if cfg.Observability.Tracing.Enabled {
 		app.Use(otelfiber.Middleware(
 			otelfiber.WithSpanNameFormatter(func(ctx *fiber.Ctx) string {
@@ -200,6 +200,21 @@ func main() {
 			zap.String("service", cfg.Observability.Tracing.ServiceName),
 		)
 	}
+
+	// Logger injection middleware - AFTER tracing to get span context
+	app.Use(func(c *fiber.Ctx) error {
+		// Obtener context con span activo (ya creado por otelfiber)
+		ctx := c.UserContext()
+
+		// Crear logger con trace context (incluye trace_id y span_id)
+		requestLogger := log.WithTraceContext(ctx)
+
+		// Inyectarlo en el context para que auth.go lo use
+		ctx = context.WithValue(ctx, "logger", requestLogger)
+		c.SetUserContext(ctx)
+
+		return c.Next()
+	})
 
 	// Metrics middleware (OTEL)
 	app.Use(metrics.OTELMiddleware(metrics.OTELMiddlewareConfig{
@@ -235,7 +250,7 @@ func main() {
 	)
 
 	// ✅ USERS MODULE ROUTES
-	http.RegisterRoutes(app, userHandler, cfg, apiBasePath)
+	http.RegisterRoutes(app, userHandler, cfg, otelMetrics, apiBasePath)
 
 	log.Info("Users module routes registered",
 		zap.String("prefix", apiBasePath+"/users"),

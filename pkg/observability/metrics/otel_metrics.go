@@ -16,7 +16,8 @@ import (
 
 // OTELMetrics contiene todas las métricas del servicio usando OTEL SDK
 type OTELMetrics struct {
-	meter metric.Meter
+	MeterProvider metric.MeterProvider
+	meter         metric.Meter
 
 	// HTTP metrics
 	httpRequestsTotal   metric.Int64Counter
@@ -25,6 +26,13 @@ type OTELMetrics struct {
 	httpServerErrors    metric.Int64Counter
 	httpSlowRequests    metric.Int64Counter
 	activeConnections   metric.Int64UpDownCounter
+
+	// Auth metrics
+	authAttempts      metric.Int64Counter
+	authFailures      metric.Int64Counter
+	tokenValidations  metric.Int64Counter
+	permissionChecks  metric.Int64Counter
+	permissionDenials metric.Int64Counter
 }
 
 // OTELMetricsConfig configuración para inicializar OTEL Metrics
@@ -87,7 +95,10 @@ func NewOTELMetrics(ctx context.Context, config OTELMetricsConfig) (*OTELMetrics
 	)
 
 	// 6. Crear instrumentos de métricas
-	m := &OTELMetrics{meter: meter}
+	m := &OTELMetrics{
+		MeterProvider: meterProvider,
+		meter:         meter,
+	}
 
 	// Counter: Total HTTP requests
 	m.httpRequestsTotal, err = meter.Int64Counter(
@@ -147,6 +158,60 @@ func NewOTELMetrics(ctx context.Context, config OTELMetricsConfig) (*OTELMetrics
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create activeConnections gauge: %w", err)
+	}
+
+	// ========================================
+	// AUTH METRICS
+	// ========================================
+
+	// Counter: Total de intentos de autenticación
+	m.authAttempts, err = meter.Int64Counter(
+		"auth.attempts.total",
+		metric.WithDescription("Total number of authentication attempts"),
+		metric.WithUnit("{attempt}"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create authAttempts counter: %w", err)
+	}
+
+	// Counter: Total de fallos de autenticación
+	m.authFailures, err = meter.Int64Counter(
+		"auth.failures.total",
+		metric.WithDescription("Total number of authentication failures"),
+		metric.WithUnit("{failure}"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create authFailures counter: %w", err)
+	}
+
+	// Counter: Total de validaciones de token
+	m.tokenValidations, err = meter.Int64Counter(
+		"auth.token.validations.total",
+		metric.WithDescription("Total number of token validations"),
+		metric.WithUnit("{validation}"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create tokenValidations counter: %w", err)
+	}
+
+	// Counter: Total de verificaciones de permisos
+	m.permissionChecks, err = meter.Int64Counter(
+		"auth.permission.checks.total",
+		metric.WithDescription("Total number of permission checks"),
+		metric.WithUnit("{check}"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create permissionChecks counter: %w", err)
+	}
+
+	// Counter: Total de denegaciones de permisos
+	m.permissionDenials, err = meter.Int64Counter(
+		"auth.permission.denials.total",
+		metric.WithDescription("Total number of permission denials"),
+		metric.WithUnit("{denial}"),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create permissionDenials counter: %w", err)
 	}
 
 	return m, meterProvider.Shutdown, nil
@@ -215,4 +280,61 @@ func (m *OTELMetrics) IncActiveConnections(ctx context.Context) {
 // DecActiveConnections decrementa el contador de conexiones activas
 func (m *OTELMetrics) DecActiveConnections(ctx context.Context) {
 	m.activeConnections.Add(ctx, -1)
+}
+
+// ========================================
+// AUTH METRICS METHODS
+// ========================================
+
+// RecordAuthAttempt registra un intento de autenticación
+func (m *OTELMetrics) RecordAuthAttempt(ctx context.Context, success bool, reason string) {
+	if m.authAttempts == nil {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.Bool("success", success),
+		attribute.String("reason", reason),
+	}
+
+	m.authAttempts.Add(ctx, 1, metric.WithAttributes(attrs...))
+
+	// Si falló, también incrementar el counter de fallos
+	if !success && m.authFailures != nil {
+		m.authFailures.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
+}
+
+// RecordTokenValidation registra una validación de token
+func (m *OTELMetrics) RecordTokenValidation(ctx context.Context, valid bool, issuer string) {
+	if m.tokenValidations == nil {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.Bool("valid", valid),
+		attribute.String("issuer", issuer),
+	}
+
+	m.tokenValidations.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+// RecordPermissionCheck registra una verificación de permiso
+func (m *OTELMetrics) RecordPermissionCheck(ctx context.Context, permission string, granted bool, userID string) {
+	if m.permissionChecks == nil {
+		return
+	}
+
+	attrs := []attribute.KeyValue{
+		attribute.String("permission", permission),
+		attribute.Bool("granted", granted),
+		attribute.String("user_id", userID),
+	}
+
+	m.permissionChecks.Add(ctx, 1, metric.WithAttributes(attrs...))
+
+	// Si fue denegado, también incrementar el counter de denegaciones
+	if !granted && m.permissionDenials != nil {
+		m.permissionDenials.Add(ctx, 1, metric.WithAttributes(attrs...))
+	}
 }
