@@ -109,3 +109,17 @@ func (l *Logger) WithTraceContext(ctx context.Context) *Logger {
 		zap.String("span_id", spanID),
 	)
 }
+
+// FromContext extrae el logger del context, o retorna uno por defecto
+func FromContext(ctx context.Context) *Logger {
+	// Intentar extraer logger del context
+	if log := ctx.Value("logger"); log != nil {
+		if l, ok := log.(*Logger); ok {
+			return l
+		}
+	}
+
+	// Fallback: retornar logger con nivel Info (para evitar nil panics)
+	fallbackLogger, _ := zap.NewProduction()
+	return &Logger{Logger: fallbackLogger.Sugar().Desugar()}
+}

@@ -4,16 +4,17 @@ import (
 	"github.com/cristianortiz/observ-monit-go/internal/users/ports/http/dto"
 	"github.com/cristianortiz/observ-monit-go/pkg/config"
 	"github.com/cristianortiz/observ-monit-go/pkg/http-utils/middleware"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
 	"github.com/gofiber/fiber/v2"
 )
 
 // RegisterRoutes registers all user routes with authentication
-func RegisterRoutes(app *fiber.App, handler *UserHandler, cfg *config.Config, basePath string) {
+func RegisterRoutes(app *fiber.App, handler *UserHandler, cfg *config.Config, otelMetrics *metrics.OTELMetrics, basePath string) {
 	api := app.Group(basePath)
 	users := api.Group("/users")
 
 	//  Aplicar autenticación a TODAS las rutas de usuarios
-	users.Use(middleware.RequireAuth(cfg))
+	users.Use(middleware.RequireAuth(cfg, otelMetrics))
 
 	// CRUD operations (todas protegidas por JWT)
 	users.Post("/",
@@ -38,7 +39,7 @@ func RegisterRoutes(app *fiber.App, handler *UserHandler, cfg *config.Config, ba
 
 	// DELETE requiere permiso específico (solo usuarios con scope delete:users)
 	users.Delete("/:id",
-		middleware.RequirePermission("delete:users"),
+		middleware.RequirePermission("delete:users", otelMetrics),
 		middleware.ValidateParam("id", "uuid"),
 		handler.DeleteUser,
 	)

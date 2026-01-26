@@ -5,9 +5,12 @@ import (
 	"slices"
 
 	"github.com/cristianortiz/observ-monit-go/pkg/config"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/logger"
+	"github.com/cristianortiz/observ-monit-go/pkg/observability/metrics"
 	jwtware "github.com/gofiber/contrib/jwt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
 )
 
 // CustomClaims define la estructura de los datos dentro del JWT
@@ -25,7 +28,7 @@ type CustomClaims struct {
 // RequireAuth middleware valida JWT tokens desde Auth0
 // Si AUTH_ENABLED=false, permite pasar sin autenticación (desarrollo)
 // Si AUTH_ENABLED=true, valida firma, expiración, audience e issuer
-func RequireAuth(cfg *config.Config) fiber.Handler {
+func RequireAuth(cfg *config.Config, otelMetrics *metrics.OTELMetrics) fiber.Handler {
 	// En desarrollo podemos desactivar auth completamente
 	if !cfg.Security.AuthEnabled {
 		return func(c *fiber.Ctx) error {
@@ -52,8 +55,12 @@ func RequireAuth(cfg *config.Config) fiber.Handler {
 
 		// Error handler: cuando el token es inválido, expirado o falta
 		ErrorHandler: func(c *fiber.Ctx, err error) error {
+			// Registrar métrica de intento de auth fallido
+			otelMetrics.RecordAuthAttempt(c.UserContext(), false, err.Error())
+			log := logger.FromContext(c.UserContext())
+
 			// Log del error (útil para debugging)
-			// logger.Warn("Auth failed", zap.Error(err), zap.String("ip", c.IP()))
+			log.Warn("Authentication failed", zap.String("error", err.Error()), zap.String("ip", c.IP()))
 
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
 				"error":   "unauthorized",
@@ -64,9 +71,14 @@ func RequireAuth(cfg *config.Config) fiber.Handler {
 		// Success handler: cuando el token es válido
 		// Aquí extraemos los datos del token y los inyectamos en el context
 		SuccessHandler: func(c *fiber.Ctx) error {
+			log := logger.FromContext(c.UserContext())
+
 			// Obtener el token parseado
 			user := c.Locals("user").(*jwt.Token)
 			claims := user.Claims.(*CustomClaims)
+
+			// Registrar métrica de validación de token exitosa
+			otelMetrics.RecordTokenValidation(c.UserContext(), true, claims.Issuer)
 
 			// Validar audience (¿el token fue emitido para nuestra API?)
 			// Audience es un slice, verificamos si contiene nuestro audience
@@ -104,14 +116,17 @@ func RequireAuth(cfg *config.Config) fiber.Handler {
 				c.Locals("tenant_name", claims.TenantName)
 			}
 
+			// Registrar métrica de autenticación exitosa
+			otelMetrics.RecordAuthAttempt(c.UserContext(), true, "authenticated")
+
 			//Log de auditoría: quién accedió a qué
-			// logger.Info("User authenticated",
-			// 	zap.String("user_id", claims.Subject),
-			// 	zap.String("email", claims.Email),
-			// 	zap.String("method", c.Method()),
-			// 	zap.String("path", c.Path()),
-			// 	zap.Strings("permissions", claims.Permissions),
-			// )
+			log.Info("User authenticated",
+				zap.String("user_id", claims.Subject),
+				zap.String("email", claims.Email),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+				zap.Strings("permissions", claims.Permissions),
+			)
 
 			return c.Next()
 		},
@@ -120,8 +135,10 @@ func RequireAuth(cfg *config.Config) fiber.Handler {
 
 // RequirePermission valida que el usuario tenga un permiso específico
 // Ejemplo: RequirePermission("delete:users") bloquea si no tiene ese scope
-func RequirePermission(permission string) fiber.Handler {
+func RequirePermission(permission string, otelMetrics *metrics.OTELMetrics) fiber.Handler {
 	return func(c *fiber.Ctx) error {
+		log := logger.FromContext(c.UserContext())
+
 		permissions, ok := c.Locals("user_permissions").([]string)
 		if !ok {
 			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
@@ -130,10 +147,37 @@ func RequirePermission(permission string) fiber.Handler {
 			})
 		}
 
+		// Obtener user_id para métricas
+		userID, _ := GetUserID(c)
+		userEmail, _ := c.Locals("user_email").(string)
+
 		// Verificar si tiene el permiso requerido
 		if slices.Contains(permissions, permission) {
+			// Registrar métrica de verificación exitosa
+			otelMetrics.RecordPermissionCheck(c.UserContext(), permission, true, userID)
+			log.Info("Permission granted",
+				zap.String("user_id", userID),
+				zap.String("user_email", userEmail),
+				zap.String("permission", permission),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+			)
+
 			return c.Next()
 		}
+
+		// Registrar métrica de denegación de permiso
+		otelMetrics.RecordPermissionCheck(c.UserContext(), permission, false, userID)
+
+		log.Warn("Permission denied",
+			zap.String("user_id", userID),
+			zap.String("user_email", userEmail),
+			zap.String("required_permission", permission),
+			zap.Strings("user_permissions", permissions),
+			zap.String("method", c.Method()),
+			zap.String("path", c.Path()),
+			zap.String("ip", c.IP()),
+		)
 
 		// No tiene permiso
 		return c.Status(fiber.StatusForbidden).JSON(fiber.Map{
